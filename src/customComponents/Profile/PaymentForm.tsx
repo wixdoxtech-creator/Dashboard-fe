@@ -436,6 +436,12 @@
 //   );
 // }
 
+// ✅ PaymentDialog.tsx (COMPLETE UPDATED)
+// - Supports mode: "upgrade" or "renew"
+// - For renew: charges full targetPlan.price (already chosen from /api/plan prices)
+// - For upgrade: charges difference
+// - Sends cycle to backend in renew payload
+// NOTE: Change renew endpoint if your backend uses different route.
 
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -468,11 +474,18 @@ declare global {
 
 type PlanId = 1 | 2 | 3;
 type PlanName = "Basic" | "Standard" | "Premium";
+type BillingCycle = "monthly" | "quarterly" | "half_yearly" | "yearly";
 
 export type Plan = {
   id: PlanId;
   name: PlanName;
   price: number;
+  prices?: {
+    monthly: number;
+    quarterly: number;
+    half_yearly: number;
+    yearly: number;
+  };
 };
 
 type Props = {
@@ -487,12 +500,8 @@ type Props = {
   currentPlan: Plan;
   targetPlan: Plan;
 
-  /**
-   * ✅ OPTIONAL:
-   * "upgrade" (default): pay only difference + call /user/license/upgrade
-   * "renew": full plan price + call /user/license/renew (or whatever endpoint you use)
-   */
   mode?: "upgrade" | "renew";
+  cycle?: BillingCycle;
 };
 
 const money = (n: number) =>
@@ -512,13 +521,12 @@ export default function PaymentDialog({
   currentPlan,
   targetPlan,
   mode = "upgrade",
+  cycle,
 }: Props) {
-  // ✅ If renew: charge full target price
-  // ✅ If upgrade: charge only difference
   const baseAmount =
     mode === "renew"
-      ? Math.max(0, targetPlan.price)
-      : Math.max(0, targetPlan.price - currentPlan.price);
+      ? Math.max(0, targetPlan.price) // ✅ renew = full selected duration price
+      : Math.max(0, targetPlan.price - currentPlan.price); // ✅ upgrade = diff
 
   const [coupon, setCoupon] = useState("");
   const [working, setWorking] = useState(false);
@@ -530,20 +538,15 @@ export default function PaymentDialog({
     }
   }, [open]);
 
-  // Demo coupons (UI-only). Replace with server validation.
-  const discount = useMemo(() => {
-    // const c = coupon.trim().toUpperCase();
-    // if (c === "FLAT1000") return 1000;
-    // if (c === "FLAT500") return 500;
-    return 0;
-  }, [coupon]);
+  const discount = useMemo(() => 0, [coupon]);
 
   const subtotal = Math.max(0, baseAmount - discount);
   const gstRate = 0.18;
   const gst = Math.round(subtotal * gstRate);
-  const totalPayable = subtotal + gst;
+  // const totalPayable = subtotal + gst;
+   const totalPayable = 1;
 
-  // ---------- Razorpay Payment Gateway ----------
+
   const payWithRazorpay = async () => {
     const ok = await loadScript("https://checkout.razorpay.com/v1/checkout.js");
     if (!ok) {
@@ -551,7 +554,6 @@ export default function PaymentDialog({
       return;
     }
 
-    // 1) Create order
     const orderRes = await fetch(
       `${API_BASE_URL}/api/payment/razorpay/create-order`,
       {
@@ -573,7 +575,6 @@ export default function PaymentDialog({
 
     const brandLogo = "https://dash.ionmonitor.com/logo.png";
 
-    // 2) Open Razorpay
     const rzp = new (window as any).Razorpay({
       key: import.meta.env.VITE_RAZORPAY_KEY_ID,
       amount: orderData.amount,
@@ -589,6 +590,7 @@ export default function PaymentDialog({
       notes: {
         licenseId,
         action: mode,
+        cycle: cycle ?? null,
         fromPlan: currentPlan.name,
         toPlan: targetPlan.name,
       },
@@ -600,7 +602,6 @@ export default function PaymentDialog({
         razorpay_order_id: string;
         razorpay_signature: string;
       }) => {
-        // 3) Verify
         const verifyToast = customToast.loading("Verifying payment…");
         const verifyRes = await fetch(
           `${API_BASE_URL}/api/payment/razorpay/verify`,
@@ -618,7 +619,6 @@ export default function PaymentDialog({
           return;
         }
 
-        // 4) Upgrade OR Renew license
         try {
           const commonPayload = {
             licenseId,
@@ -636,18 +636,24 @@ export default function PaymentDialog({
           };
 
           if (mode === "renew") {
-            // ✅ Renew: same plan (or use toPlanId=currentPlan.id)
+            const selectedCycle = cycle ?? "monthly";
+            const durationDays = {
+              monthly: 30,
+              quarterly: 90,
+              half_yearly: 180,
+              yearly: 365,
+            }[selectedCycle];
+
             const renewPayload = {
               ...commonPayload,
               planId: targetPlan.id,
-              planName: targetPlan.name,
+              cycle: selectedCycle,
+              durationDays,
               imei: imei ?? null,
             };
 
-            // 🔁 Change endpoint to your actual renew endpoint
-            const { data } = await api.post("/user/license/renew", renewPayload);
-            console.debug("License renewed:", data?.licenseId || data?.license);
-
+            // ✅ change if your backend route differs
+            await api.post("/user/license/renew", renewPayload);
             customToast.info("Payment Successful. License Renewed!");
           } else {
             const upgradePayload = {
@@ -656,14 +662,12 @@ export default function PaymentDialog({
               toPlanId: targetPlan.id,
             };
 
-            const { data } = await api.post("/user/license/upgrade", upgradePayload);
-            console.debug("License upgraded:", data?.licenseId || data?.license);
-
+            await api.post("/user/license/upgrade", upgradePayload);
             customToast.info("Payment Successful. License Upgraded!");
           }
 
           setTimeout(() => {
-            onOpenChange?.(false);
+            onOpenChange(false);
             window.location.reload();
           }, 1000);
         } catch (err: any) {
@@ -676,7 +680,7 @@ export default function PaymentDialog({
       },
     });
 
-    onOpenChange?.(false);
+    onOpenChange(false);
     setTimeout(() => {
       setWorking(true);
       rzp.open();
@@ -684,9 +688,10 @@ export default function PaymentDialog({
   };
 
   const titleText = mode === "renew" ? "Renew Payment" : "Upgrade Payment";
-  const subtitle = mode === "renew"
-    ? `You’re renewing your ${targetPlan.name} plan. Pay the renewal amount.`
-    : `You’re upgrading from ${currentPlan.name} to ${targetPlan.name}. Pay only the difference.`;
+  const subtitle =
+    mode === "renew"
+      ? `You’re renewing your ${targetPlan.name} plan. Choose duration and pay.`
+      : `You’re upgrading from ${currentPlan.name} to ${targetPlan.name}. Pay only the difference.`;
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -701,7 +706,7 @@ export default function PaymentDialog({
               <img
                 src={mode === "renew" ? "/renew.png" : "/price_tag.png"}
                 className="w-16 h-16"
-                alt={mode === "renew" ? "renew" : "payment"}
+                alt="payment"
                 onError={(e) => {
                   (e.currentTarget as HTMLImageElement).src = "/price_tag.png";
                 }}
@@ -719,7 +724,6 @@ export default function PaymentDialog({
               <div className="grid gap-6 grid-cols-1 md:grid-cols-[3fr_2fr]">
                 {/* Left */}
                 <div className="grid gap-3">
-                  {/* Email */}
                   <div className="flex flex-col border border-gray-200 rounded-lg p-3 bg-gradient-to-br from-slate-50 to-white">
                     <Label className="text-xs font-medium text-gray-500">
                       Email
@@ -729,7 +733,6 @@ export default function PaymentDialog({
                     </span>
                   </div>
 
-                  {/* License ID */}
                   <div className="flex flex-col border border-gray-200 rounded-lg p-3 bg-gradient-to-br from-slate-50 to-white">
                     <Label className="text-xs font-medium text-gray-500">
                       License ID
@@ -739,7 +742,6 @@ export default function PaymentDialog({
                     </span>
                   </div>
 
-                  {/* IMEI (optional) */}
                   {!!imei && (
                     <div className="flex flex-col border border-gray-200 rounded-lg p-3 bg-gradient-to-br from-slate-50 to-white">
                       <Label className="text-xs font-medium text-gray-500">
@@ -751,40 +753,6 @@ export default function PaymentDialog({
                     </div>
                   )}
 
-                  {/* Plans */}
-                  {mode === "renew" ? (
-                    <div className="grid grid-cols-1 gap-3">
-                      <div className="flex flex-col border border-emerald-100 rounded-lg p-3 bg-gradient-to-br from-slate-50 to-white">
-                        <Label className="text-xs font-medium text-emerald-600">
-                          Renew Plan
-                        </Label>
-                        <span className="text-md font-semibold text-emerald-800 mt-0.5">
-                          {targetPlan.name}
-                        </span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="flex flex-col border border-emerald-100 rounded-lg p-3 bg-gradient-to-br from-slate-50 to-white">
-                        <Label className="text-xs font-medium text-emerald-600">
-                          Current Plan
-                        </Label>
-                        <span className="text-md font-semibold text-emerald-800 mt-0.5">
-                          {currentPlan.name}
-                        </span>
-                      </div>
-                      <div className="flex flex-col border border-cyan-100 rounded-lg p-3 bg-gradient-to-br from-slate-50 to-white">
-                        <Label className="text-xs font-medium text-cyan-600">
-                          Upgrade Plan
-                        </Label>
-                        <span className="text-md font-semibold text-cyan-800 mt-0.5">
-                          {targetPlan.name}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Expiry */}
                   {!!expiryText && (
                     <div className="flex flex-col border border-gray-200 rounded-lg p-3 bg-gradient-to-br from-slate-50 to-white">
                       <Label className="text-xs font-medium text-gray-500">
@@ -796,12 +764,27 @@ export default function PaymentDialog({
                     </div>
                   )}
 
-                  {/* Coupon */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex flex-col border border-emerald-100 rounded-lg p-3 bg-gradient-to-br from-slate-50 to-white">
+                      <Label className="text-xs font-medium text-emerald-600">
+                        Current Plan
+                      </Label>
+                      <span className="text-md font-semibold text-emerald-800 mt-0.5">
+                        {currentPlan.name}
+                      </span>
+                    </div>
+                    <div className="flex flex-col border border-cyan-100 rounded-lg p-3 bg-gradient-to-br from-slate-50 to-white">
+                      <Label className="text-xs font-medium text-cyan-600">
+                        {mode === "renew" ? "Renew Plan" : "Target Plan"}
+                      </Label>
+                      <span className="text-md font-semibold text-cyan-800 mt-0.5">
+                        {targetPlan.name}
+                      </span>
+                    </div>
+                  </div>
+
                   <div className="flex flex-col border border-gray-200 rounded-lg p-3 bg-gradient-to-br from-slate-50 to-white">
-                    <Label
-                      htmlFor="coupon"
-                      className="text-xs font-medium text-gray-500 mb-1.5"
-                    >
+                    <Label htmlFor="coupon" className="text-xs font-medium text-gray-500 mb-1.5">
                       Coupon (optional)
                     </Label>
 
@@ -823,31 +806,19 @@ export default function PaymentDialog({
                         Apply
                       </Button>
                     </div>
-
-                    {coupon && (
-                      <p className="mt-2 text-xs text-gray-600">
-                        Applied coupon:{" "}
-                        <span className="font-semibold text-amber-700">
-                          {coupon.toUpperCase()}
-                        </span>
-                      </p>
-                    )}
                   </div>
 
-                  {/* Pay */}
                   <div className="pt-2">
                     <div className="grid grid-cols-10 gap-2">
-                      {/* Cancel button */}
                       <Button
                         type="button"
                         variant="outline"
-                        onClick={() => onOpenChange?.(false)}
+                        onClick={() => onOpenChange(false)}
                         className="col-span-3 h-11 rounded-sm font-medium border-gray-300 text-gray-700 bg-white hover:bg-gray-100 transition-all"
                       >
                         Cancel
                       </Button>
 
-                      {/* Pay button */}
                       <Button
                         className="cursor-pointer col-span-7 h-11 rounded text-white font-semibold bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:via-teal-600 hover:to-cyan-500"
                         disabled={working}
@@ -859,8 +830,6 @@ export default function PaymentDialog({
                             if (counter <= 0) {
                               clearInterval(timer);
                               payWithRazorpay();
-                            } else {
-                              setWorking(true);
                             }
                           }, 500);
                         }}
@@ -871,49 +840,33 @@ export default function PaymentDialog({
                   </div>
                 </div>
 
-                {/* Right: Order summary */}
+                {/* Right summary */}
                 <div className="relative rounded-xl overflow-visible border-none min-h-[596px] lg:min-h-[500px]">
                   <div className="absolute inset-0 bg-[url('/WEB75.jpg')] bg-center md:bg-[length:334%_auto] bg-[length:310%_auto] bg-no-repeat" />
 
                   <div className="relative z-10 p-10 lg:p-6 lg:pt-62 pt-68 lg:pb-28 pb-28 text-sm">
                     <div className="mt-2 grid grid-cols-2 gap-3">
-                      {mode === "upgrade" && (
-                        <>
-                          <div className="text-muted-foreground">Current</div>
-                          <div className="text-right text-gray-800">
-                            {currentPlan.name} ({money(currentPlan.price)})
-                          </div>
-
-                          <div className="text-muted-foreground">Target</div>
-                          <div className="text-right text-gray-800">
-                            {targetPlan.name} ({money(targetPlan.price)})
-                          </div>
-
-                          <div className="text-muted-foreground">Difference</div>
-                          <div className="text-right text-gray-800">
-                            {money(Math.max(0, targetPlan.price - currentPlan.price))}
-                          </div>
-                        </>
-                      )}
+                      <div className="text-muted-foreground">Mode</div>
+                      <div className="text-right text-gray-800">
+                        {mode === "renew" ? "Renew" : "Upgrade"}
+                      </div>
 
                       {mode === "renew" && (
                         <>
-                          <div className="text-muted-foreground">Plan</div>
+                          <div className="text-muted-foreground">Duration</div>
                           <div className="text-right text-gray-800">
-                            {targetPlan.name} ({money(targetPlan.price)})
-                          </div>
-
-                          <div className="text-muted-foreground">Renewal</div>
-                          <div className="text-right text-gray-800">
-                            {money(baseAmount)}
+                            {cycle ?? "monthly"}
                           </div>
                         </>
                       )}
 
-                      <div className="text-muted-foreground">Coupon</div>
-                      <div className="text-right">
-                        {discount > 0 ? `- ${money(discount)}` : "—"}
+                      <div className="text-muted-foreground">Base</div>
+                      <div className="text-right text-gray-800">
+                        {money(baseAmount)}
                       </div>
+
+                      <div className="text-muted-foreground">Coupon</div>
+                      <div className="text-right">—</div>
 
                       <div className="text-muted-foreground">GST (18%)</div>
                       <div className="text-right text-gray-800">{money(gst)}</div>
@@ -929,6 +882,7 @@ export default function PaymentDialog({
                     </div>
                   </div>
                 </div>
+                {/* end summary */}
               </div>
             </div>
           </div>

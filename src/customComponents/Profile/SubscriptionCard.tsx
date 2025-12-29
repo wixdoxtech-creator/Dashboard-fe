@@ -366,18 +366,27 @@
 
 // export default SubscriptionCard;
 
+// ✅ SubscriptionCard.tsx (COMPLETE UPDATED)
+// - Adds Renew button next to Upgrade
+// - Fetches /api/plan and stores monthly/quarterly/half_yearly/yearly in Plan.prices (NO hardcoded)
+// - Upgrade button shows upgrade targets (all plans)
+// - Renew button shows ONLY current plan + duration selector
+// - Passes { plan, cycle, mode } to PaymentDialog and adjusts payment amount accordingly
+
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useEffect, useMemo, useState } from "react";
-import UpgradePlanDialog, { Plan } from "./UpgradePlanDialog";
-
+import UpgradePlanDialog from "./UpgradePlanDialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { api } from "@/api/api";
 import PaymentDialog from "./PaymentForm";
 
+// ---------------- TYPES ----------------
 export type PlanId = 1 | 2 | 3;
 export type PlanName = "Basic" | "Standard" | "Premium";
+export type BillingCycle = "monthly" | "quarterly" | "half_yearly" | "yearly";
+export type Mode = "upgrade" | "renew";
 
 export interface LicenseRecord {
   email: string;
@@ -390,10 +399,6 @@ export interface LicenseRecord {
   paymentMethod: "razorpay" | string;
   planStartAt: string;
   planExpireAt: string;
-}
-export interface LicenseApiResponse {
-  count: number;
-  licenses: LicenseRecord[];
 }
 
 interface LicenseDetails {
@@ -418,13 +423,36 @@ type PlanApiItem = {
   yearly: number;
 };
 
+export type Plan = {
+  id: PlanId;
+  name: PlanName;
+  price: number; // default display price (monthly by default)
+  prices: {
+    monthly: number;
+    quarterly: number;
+    half_yearly: number;
+    yearly: number;
+  };
+  features?: string[];
+};
+
+// ---------------- COMPONENT ----------------
 const SubscriptionCard = ({
   licenseDetails,
 }: {
   licenseDetails: LicenseDetails;
 }) => {
-  const { licenseId, planName, planStartAt, planExpireAt, paymentMethod, price } =
-    licenseDetails || {};
+  const {
+    licenseId,
+    planName,
+    planStartAt,
+    planExpireAt,
+    paymentMethod,
+    price,
+  } = licenseDetails || {};
+
+  const { user, currentLicense } = useAuth();
+  const email = user?.email;
 
   const formatDate = (dateString?: string) => {
     if (!dateString) return "N/A";
@@ -496,18 +524,19 @@ const SubscriptionCard = ({
     </Badge>
   );
 
+  // ---------------- STATE ----------------
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
 
   const [allPlans, setAllPlans] = useState<Plan[]>([]);
   const [loadingPlans, setLoadingPlans] = useState(false);
 
-  // ✅ NEW: mode state (upgrade / renew)
-  const [mode, setMode] = useState<"upgrade" | "renew">("upgrade");
+  // mode for dialogs
+  const [mode, setMode] = useState<Mode>("upgrade");
 
-  const { user, currentLicense } = useAuth();
-  const email = user?.email;
+  // selection result from dialog
+  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
+  const [selectedCycle, setSelectedCycle] = useState<BillingCycle>("monthly");
 
   const DEFAULT_FEATURES: Record<PlanName, string[]> = {
     Basic: ["Core logs", "Limited history"],
@@ -526,10 +555,9 @@ const SubscriptionCard = ({
     ],
   };
 
-  // ✅ Fetch all plans only when Upgrade dialog is open AND mode is upgrade
+  // ---------------- FETCH PLANS (from /api/plan) ----------------
   useEffect(() => {
     if (!upgradeOpen) return;
-    if (mode !== "upgrade") return;
 
     const fetchPlans = async () => {
       try {
@@ -540,14 +568,20 @@ const SubscriptionCard = ({
 
         const normalized: Plan[] = data
           .map((p) => {
-            const safeName = (["Basic", "Standard", "Premium"].includes(p.name)
-              ? p.name
-              : "Basic") as PlanName;
+            const safeName = (
+              ["Basic", "Standard", "Premium"].includes(p.name) ? p.name : "Basic"
+            ) as PlanName;
 
             return {
               id: p.id as PlanId,
               name: safeName,
               price: Number(p.monthly) || 0,
+              prices: {
+                monthly: Number(p.monthly) || 0,
+                quarterly: Number(p.quarterly) || 0,
+                half_yearly: Number(p.half_yearly) || 0,
+                yearly: Number(p.yearly) || 0,
+              },
               features: DEFAULT_FEATURES[safeName],
             };
           })
@@ -563,17 +597,36 @@ const SubscriptionCard = ({
     };
 
     fetchPlans();
-  }, [upgradeOpen, mode]);
+  }, [upgradeOpen]);
 
-  // Build current plan object (for PaymentDialog)
+  // ---------------- CURRENT PLAN FOR PAYMENT ----------------
   const currentPlanForPayment: Plan | null = useMemo(() => {
     if (!currentLicense) return null;
+
+    // Try to find this plan in fetched plans to get prices{} as well
+    const fromApi = allPlans.find((p) => p.id === (currentLicense.planId as PlanId));
+
+    if (fromApi) {
+      return {
+        ...fromApi,
+        // currentLicense.price might be old paid amount; keep API prices for renew
+        price: Number(fromApi.prices.monthly) || 0,
+      };
+    }
+
+    // fallback if plans not loaded yet
     return {
       id: currentLicense.planId as PlanId,
       name: (currentLicense.planName ?? "Basic") as PlanName,
       price: Number(currentLicense.price) || 0,
+      prices: {
+        monthly: Number(currentLicense.price) || 0,
+        quarterly: Number(currentLicense.price) || 0,
+        half_yearly: Number(currentLicense.price) || 0,
+        yearly: Number(currentLicense.price) || 0,
+      },
     };
-  }, [currentLicense]);
+  }, [currentLicense, allPlans]);
 
   const expiryText = useMemo(() => {
     if (!currentLicense?.planExpireAt) return undefined;
@@ -588,29 +641,15 @@ const SubscriptionCard = ({
     }
   }, [currentLicense?.planExpireAt]);
 
-  // ✅ NEW: visible plans for dialog (renew shows only current plan)
-  const visiblePlans: Plan[] = useMemo(() => {
-    if (!currentLicense) return [];
+  const isPlansLoading = upgradeOpen && (loadingPlans || allPlans.length === 0);
 
-    if (mode === "renew") {
-      const safeName = (currentLicense.planName ?? "Basic") as PlanName;
-      return [
-        {
-          id: currentLicense.planId as PlanId,
-          name: safeName,
-          price: Number(currentLicense.price) || 0,
-          features: DEFAULT_FEATURES[safeName],
-        },
-      ];
-    }
+  // ---------------- HELPERS ----------------
+  const getCurrentPlanFromApi = useMemo(() => {
+    if (!currentLicense) return null;
+    return allPlans.find((p) => p.id === (currentLicense.planId as PlanId)) || null;
+  }, [allPlans, currentLicense]);
 
-    return allPlans;
-  }, [mode, allPlans, currentLicense]);
-
-  // ✅ Loading only matters for upgrade
-  const isPlansLoading =
-    upgradeOpen && mode === "upgrade" && (loadingPlans || allPlans.length === 0);
-
+  // ---------------- UI ----------------
   return (
     <Card className="overflow-hidden shadow-sm">
       {/* Header */}
@@ -650,9 +689,9 @@ const SubscriptionCard = ({
 
           <div className="hidden sm:block">
             {isExpired ? (
-              <img src="/alert.png" className="w-15 h-15" alt="alert" />
+              <img src="/alert.png" className="w-15 h-15" />
             ) : (
-              <img src="/approve.png" className="w-15 h-15 opacity-60" alt="ok" />
+              <img src="/approve.png" className="w-15 h-15 opacity-60" />
             )}
           </div>
         </div>
@@ -763,7 +802,7 @@ const SubscriptionCard = ({
 
         {/* Actions */}
         <div className="flex flex-wrap gap-2">
-          {/* Upgrade / Manage */}
+          {/* ✅ Upgrade button */}
           <Button
             className={`
               group relative overflow-hidden text-white shadow-md
@@ -780,22 +819,21 @@ const SubscriptionCard = ({
             disabled={loadingPlans}
           >
             <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/30 to-transparent transition-transform duration-700 ease-out group-hover:translate-x-0" />
-            {loadingPlans ? "Loading..." : isExpired ? "Renew plan" : "Upgrade / Manage plan"}
+            {loadingPlans ? "Loading..." : "Upgrade / Manage"}
           </Button>
 
-          {/* ✅ Renew button (shows only current plan) */}
-          {!isExpired && (
-            <Button
-              variant="outline"
-              className="border-gray-200 bg-white bg-gradient-to-r hover:from-emerald-500 hover:via-teal-600 hover:to-cyan-500 hover:text-white"
-              onClick={() => {
-                setMode("renew");
-                setUpgradeOpen(true);
-              }}
-            >
-              Renew
-            </Button>
-          )}
+          {/* ✅ Renew button */}
+          <Button
+            variant="outline"
+            className= "h-9 rounded-sm border-gray-300 text-gray-700 hover:text-white bg-white hover:bg-gradient-to-r hover:from-emerald-500 hover:via-teal-600 hover:to-cyan-500"
+            onClick={() => {
+              setMode("renew");
+              setUpgradeOpen(true);
+            }}
+            disabled={loadingPlans}
+          >
+            Renew
+          </Button>
         </div>
       </div>
 
@@ -810,11 +848,20 @@ const SubscriptionCard = ({
             planName: (currentLicense.planName ?? "Basic") as PlanName,
             price: Number(currentLicense.price) || 0,
           }}
-          plans={visiblePlans}
+          // ✅ Upgrade: all plans
+          // ✅ Renew: only current plan from API (so it has prices)
+          plans={
+            mode === "renew"
+              ? (getCurrentPlanFromApi ? [getCurrentPlanFromApi] : [])
+              : allPlans
+          }
           isLoading={isPlansLoading}
-          onConfirm={(plan) => {
-            if (!plan) return;
-            setSelectedPlan(plan);
+          onConfirm={(data) => {
+            if (!data?.plan) return;
+
+            setSelectedPlan(data.plan);
+            setSelectedCycle(data.cycle ?? "monthly");
+
             setPaymentOpen(true);
           }}
         />
@@ -831,9 +878,8 @@ const SubscriptionCard = ({
           expiryText={expiryText}
           currentPlan={currentPlanForPayment}
           targetPlan={selectedPlan}
-          onPay={async (payload) => {
-            console.log("Pay → payload", payload);
-          }}
+          mode={mode}
+          cycle={mode === "renew" ? selectedCycle : undefined}
         />
       )}
     </Card>
@@ -841,4 +887,3 @@ const SubscriptionCard = ({
 };
 
 export default SubscriptionCard;
-
