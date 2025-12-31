@@ -497,16 +497,16 @@ const SubscriptionCard = ({
   const tone = isExpired ? "rose" : isExpiringSoon ? "amber" : "emerald";
 
   const statusBadge = isExpired ? (
-    <Badge className="bg-rose-100 text-rose-700 border-rose-200">Expired</Badge>
-  ) : isExpiringSoon ? (
-    <Badge className="bg-amber-100 text-amber-800 border-amber-200">
-      Expiring soon
-    </Badge>
-  ) : (
-    <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">
-      Active
-    </Badge>
-  );
+        <Badge className="bg-rose-100 text-rose-700 border-rose-200">Expired</Badge>
+      ) : isExpiringSoon ? (
+        <Badge className="bg-amber-100 text-amber-800 border-amber-200">
+          Expiring soon
+        </Badge>
+      ) : (
+        <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">
+          Active
+        </Badge>
+      );
 
   const planChip = planName ? (
     <Badge
@@ -537,6 +537,7 @@ const SubscriptionCard = ({
   // selection result from dialog
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
   const [selectedCycle, setSelectedCycle] = useState<BillingCycle>("monthly");
+  const [selectedProration, setSelectedProration] = useState<any>(null); // proration data
 
   const DEFAULT_FEATURES: Record<PlanName, string[]> = {
     Basic: ["Core logs", "Limited history"],
@@ -626,7 +627,7 @@ const SubscriptionCard = ({
         yearly: Number(currentLicense.price) || 0,
       },
     };
-  }, [currentLicense, allPlans]);
+    }, [currentLicense, allPlans]);
 
   const expiryText = useMemo(() => {
     if (!currentLicense?.planExpireAt) return undefined;
@@ -846,7 +847,10 @@ const SubscriptionCard = ({
             licenseId: currentLicense.licenseId,
             planId: currentLicense.planId,
             planName: (currentLicense.planName ?? "Basic") as PlanName,
-            price: Number(currentLicense.price) || 0,
+            pricePaid: Number(currentLicense.price) || 0,
+            billingCycle: 'monthly' as BillingCycle, // Assuming monthly, adjust if available
+            planStartAt: currentLicense.planStartAt || "",
+            planExpireAt: currentLicense.planExpireAt || "",
           }}
           // ✅ Upgrade: all plans
           // ✅ Renew: only current plan from API (so it has prices)
@@ -861,6 +865,7 @@ const SubscriptionCard = ({
 
             setSelectedPlan(data.plan);
             setSelectedCycle(data.cycle ?? "monthly");
+            setSelectedProration(data.proration ?? null);
 
             setPaymentOpen(true);
           }}
@@ -880,6 +885,7 @@ const SubscriptionCard = ({
           targetPlan={selectedPlan}
           mode={mode}
           cycle={mode === "renew" ? selectedCycle : undefined}
+          payableOverride={mode === "upgrade" ? selectedProration?.payableDifference : undefined}
         />
       )}
     </Card>

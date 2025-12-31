@@ -328,7 +328,12 @@ type CurrentLicense = {
   licenseId: string;
   planId: PlanId;
   planName: PlanName;
-  price: number;
+  pricePaid: number;
+
+  /** IMPORTANT: to pro-rate upgrade correctly */
+  billingCycle: BillingCycle;          // e.g. "yearly"
+  planStartAt: string;                 // ISO date
+  planExpireAt: string;                // ISO date
 };
 
 export type Plan = {
@@ -356,8 +361,24 @@ type Props = {
 
   onSelect?: (plan: Plan) => void;
 
-  // ✅ Confirm returns plan + cycle (cycle only for renew)
-  onConfirm?: (data: { plan: Plan; cycle?: BillingCycle } | null) => void;
+  onConfirm?: (
+    data:
+      | {
+          plan: Plan;
+          cycle?: BillingCycle;
+
+          /** sent in upgrade mode to charge correct amount */
+          proration?: {
+            remainingDays: number;
+            remainingRatio: number; // 0..1
+            currentCycle: BillingCycle;
+            fromPriceForCycle: number;
+            toPriceForCycle: number;
+            payableDifference: number;
+          };
+        }
+      | null
+  ) => void;
 };
 
 const PLAN_ORDER: Record<PlanName, number> = {
@@ -392,6 +413,21 @@ const CYCLE_LABEL: Record<BillingCycle, string> = {
   yearly: "Yearly",
 };
 
+const DAILY_RATES: Record<PlanName, number> = {
+  Basic: 5999 / 30,
+  Standard: 6999 / 30,
+  Premium: 8999 / 30,
+};
+
+function clamp(n: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, n));
+}
+
+function daysBetween(a: Date, b: Date) {
+  const ms = b.getTime() - a.getTime();
+  return Math.ceil(ms / (1000 * 60 * 60 * 24));
+}
+
 export default function UpgradePlanDialog({
   open,
   onOpenChange,
@@ -405,16 +441,16 @@ export default function UpgradePlanDialog({
     () => ({
       id: currentLicense.planId,
       name: currentLicense.planName,
-      price: currentLicense.price,
+      price: currentLicense.pricePaid,
       // fallback (not used for current object in renew selection)
       prices: {
-        monthly: currentLicense.price,
-        quarterly: currentLicense.price,
-        half_yearly: currentLicense.price,
-        yearly: currentLicense.price,
+        monthly: currentLicense.pricePaid,
+        quarterly: currentLicense.pricePaid,
+        half_yearly: currentLicense.pricePaid,
+        yearly: currentLicense.pricePaid,
       },
     }),
-    [currentLicense.planId, currentLicense.planName, currentLicense.price]
+    [currentLicense.planId, currentLicense.planName, currentLicense.pricePaid]
   );
 
   const renewMode = useMemo(() => isRenewMode(current, plans), [current, plans]);
@@ -435,6 +471,24 @@ export default function UpgradePlanDialog({
     setCycle("monthly");
   }, [open]);
 
+  /** License timing */
+  const timing = useMemo(() => {
+    const now = new Date();
+    const start = new Date(currentLicense.planStartAt);
+    const end = new Date(currentLicense.planExpireAt);
+
+    const totalDays = daysBetween(start, end);
+    const remainingDaysRaw = daysBetween(now, end);
+    const remainingDays = Math.max(0, remainingDaysRaw);
+    console.log({ totalDays, remainingDays });
+
+    // remaining ratio assuming 30 days
+    const remainingRatio = clamp(remainingDays / totalDays, 0, 1);
+// console.log({ remainingDays, remainingRatio });
+
+    return { now, start, end, totalDays, remainingDays, remainingRatio };
+  }, [currentLicense.planStartAt, currentLicense.planExpireAt]);
+
   // Renew mode: no selection needed, compute plan price from cycle
   const renewPlanComputed = useMemo(() => {
     if (!renewMode) return null;
@@ -451,7 +505,22 @@ export default function UpgradePlanDialog({
     renewMode && renewPlanComputed
       ? { plan: renewPlanComputed, cycle }
       : selected
-      ? { plan: selected }
+      ? {
+          plan: selected,
+          proration: (() => {
+            const dailyCurrent = DAILY_RATES[current.name as PlanName];
+            const dailyTarget = DAILY_RATES[selected.name as PlanName];
+            const payableDifference = Math.max(0, (dailyTarget - dailyCurrent) * timing.remainingDays);
+            return {
+              remainingDays: timing.remainingDays,
+              remainingRatio: timing.remainingRatio,
+              currentCycle: 'monthly' as BillingCycle,
+              fromPriceForCycle: dailyCurrent * 30, // monthly equivalent
+              toPriceForCycle: dailyTarget * 30,
+              payableDifference,
+            };
+          })(),
+        }
       : null;
 
   return (
@@ -610,8 +679,14 @@ export default function UpgradePlanDialog({
                   ) : (
                     <div className="grid gap-3 sm:grid-cols-2">
                       {upgradeTargets.map((target) => {
-                        const diff = Math.max(0, target.price - current.price);
                         const active = selected?.id === target.id;
+
+                        // calculate prorated diff based on daily rates
+                        const dailyCurrent = DAILY_RATES[current.name as PlanName];
+                        const dailyTarget = DAILY_RATES[target.name as PlanName];
+                        const proratedDiff = Math.max(0, (dailyTarget - dailyCurrent) * timing.remainingDays);
+
+                        // console.log(proratedDiff);
 
                         return (
                           <div
@@ -629,13 +704,17 @@ export default function UpgradePlanDialog({
                                 {target.name}
                               </div>
                               <div className="text-right">
-                                <div className="text-xs text-muted-foreground line-through">
-                                  {money(target.price)}
+                                <div className="text-[11px] text-muted-foreground">
+                                  For remaining {timing.remainingDays} days
                                 </div>
                                 <div className="text-base font-semibold">
-                                  {diff > 0 ? money(diff) : "No extra cost"}
+                                  {money(proratedDiff)}
                                 </div>
                               </div>
+                            </div>
+
+                            <div className="mt-2 text-[11px] text-muted-foreground">
+                              Prorated assuming monthly cycle. Expiry stays the same.
                             </div>
 
                             {!!target.features?.length && (
@@ -659,10 +738,6 @@ export default function UpgradePlanDialog({
                             >
                               {active ? "Selected" : `Choose ${target.name}`}
                             </Button>
-
-                            <div className="mt-2 text-[11px] text-muted-foreground text-center">
-                              We’ll only charge the price difference. Validity stays same.
-                            </div>
                           </div>
                         );
                       })}

@@ -15,6 +15,7 @@ const LiveStream = () => {
   const [devices, setDevices] = useState<Device[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
   const [isAudioEnabled, setIsAudioEnabled] = useState(false);
+  
   const [isVideoEnabled, setIsVideoEnabled] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);

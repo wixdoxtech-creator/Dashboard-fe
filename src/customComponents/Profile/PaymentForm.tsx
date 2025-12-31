@@ -443,6 +443,7 @@
 // - Sends cycle to backend in renew payload
 // NOTE: Change renew endpoint if your backend uses different route.
 
+
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertDialog,
@@ -466,15 +467,34 @@ const loadScript = (src: string) =>
     document.body.appendChild(s);
   });
 
+// Cashfree helpers
+let cfLoaded = false;
+const loadCashfreeSDK = async () => {
+  if (cfLoaded) return true;
+  const ok = await loadScript("https://sdk.cashfree.com/js/v3/cashfree.js");
+  cfLoaded = ok;
+  return ok;
+};
+
+const getCashfree = (mode: "sandbox" | "production") => {
+  const factory = (window as any).Cashfree;
+  if (!factory) throw new Error("Cashfree SDK not loaded");
+  return factory({ mode });
+};
+
 declare global {
   interface Window {
     Razorpay?: any;
+    paypal?: any; // if you later add paypal sdk
+    Cashfree?: any;
   }
 }
 
 type PlanId = 1 | 2 | 3;
 type PlanName = "Basic" | "Standard" | "Premium";
 type BillingCycle = "monthly" | "quarterly" | "half_yearly" | "yearly";
+
+type Gateway = "razorpay" | "paypal" | "cashfree";
 
 export type Plan = {
   id: PlanId;
@@ -502,6 +522,12 @@ type Props = {
 
   mode?: "upgrade" | "renew";
   cycle?: BillingCycle;
+
+    // if you already computed prorated upgrade payable in UpgradePlanDialog,
+    // pass it here to charge correct amount.
+  //  If not passed, it will use (target - current) which is wrong for yearly upgrades.
+   
+  payableOverride?: number; // e.g. prorated payable (WITHOUT GST)
 };
 
 const money = (n: number) =>
@@ -509,7 +535,11 @@ const money = (n: number) =>
     style: "currency",
     currency: "INR",
     maximumFractionDigits: 0,
-  }).format(n);
+  }).format(Math.max(0, Math.round(n)));
+
+function roundINR(n: number) {
+  return Math.max(0, Math.round(Number(n) || 0));
+}
 
 export default function PaymentDialog({
   open,
@@ -522,54 +552,129 @@ export default function PaymentDialog({
   targetPlan,
   mode = "upgrade",
   cycle,
+  payableOverride,
 }: Props) {
-  const baseAmount =
-    mode === "renew"
-      ? Math.max(0, targetPlan.price) // ✅ renew = full selected duration price
-      : Math.max(0, targetPlan.price - currentPlan.price); // ✅ upgrade = diff
+  // ✅ Base amount before coupon+GST:
+  const baseAmount = useMemo(() => {
+    if (mode === "renew") return Math.max(0, targetPlan.price);
+    // upgrade:
+    // if you pass payableOverride (proration), use it. Otherwise fallback diff.
+    if (typeof payableOverride === "number") return Math.max(0, payableOverride);
+    return Math.max(0, targetPlan.price - currentPlan.price);
+  }, [mode, targetPlan.price, currentPlan.price, payableOverride]);
 
   const [coupon, setCoupon] = useState("");
+  const [gateway, setGateway] = useState<Gateway>("razorpay");
   const [working, setWorking] = useState(false);
 
   useEffect(() => {
     if (open) {
       setWorking(false);
       setCoupon("");
+      setGateway("razorpay");
     }
   }, [open]);
 
-  const discount = useMemo(() => 0, [coupon]);
+  // ✅ Replace with server coupon validation if needed
+  const discount = useMemo(() => {
+    // const c = coupon.trim().toUpperCase();
+    // if (c === "FLAT500") return 5000;
+    return 0;
+  }, [coupon]);
 
   const subtotal = Math.max(0, baseAmount - discount);
   const gstRate = 0.18;
-  const gst = Math.round(subtotal * gstRate);
-  // const totalPayable = subtotal + gst;
-   const totalPayable = 1;
+  const gst = roundINR(subtotal * gstRate);
+  const totalPayable = roundINR(subtotal + gst);
+  // const totalPayable = 1;
 
+  // 1) Common: verify & then call your license API
+
+  const finalizeLicenseAction = async (paymentInfo: {
+    gateway: Gateway;
+    orderId?: string | null;
+    paymentId?: string | null;
+    signature?: string | null;
+    meta?: any;
+  }) => {
+    const commonPayload = {
+      licenseId,
+      email,
+      amountPaid: totalPayable,
+      subtotal,
+      gst,
+      coupon: coupon?.trim() || null,
+      payment: {
+        gateway: paymentInfo.gateway,
+        orderId: paymentInfo.orderId || null,
+        paymentId: paymentInfo.paymentId || null,
+        signature: paymentInfo.signature || null,
+        meta: paymentInfo.meta || null,
+      },
+    };
+
+    if (mode === "renew") {
+      const selectedCycle = cycle ?? "monthly";
+      const durationDays = {
+        monthly: 30,
+        quarterly: 90,
+        half_yearly: 180,
+        yearly: 365,
+      }[selectedCycle];
+
+      const renewPayload = {
+        ...commonPayload,
+        planId: targetPlan.id,
+        cycle: selectedCycle,
+        durationDays,
+        imei: imei ?? null,
+      };
+
+      await api.post("/user/license/renew", renewPayload);
+      customToast.info("Payment Successful. License Renewed!");
+    } else {
+      const upgradePayload = {
+        ...commonPayload,
+        fromPlanId: currentPlan.id,
+        toPlanId: targetPlan.id,
+        imei: imei ?? null,
+      };
+
+      await api.post("/user/license/upgrade", upgradePayload);
+      customToast.info("Payment Successful. License Upgraded!");
+    }
+
+    setTimeout(() => {
+      onOpenChange(false);
+      window.location.reload();
+    }, 900);
+  };
+
+  // 2) Razorpay flow (Working)
 
   const payWithRazorpay = async () => {
     const ok = await loadScript("https://checkout.razorpay.com/v1/checkout.js");
     if (!ok) {
       customToast.error("Failed to load Razorpay.");
+      setWorking(false);
       return;
     }
 
-    const orderRes = await fetch(
-      `${API_BASE_URL}/api/payment/razorpay/create-order`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          amount: totalPayable,
-          currency: "INR",
-          receipt: `${mode}_${licenseId}_${Date.now()}`,
-        }),
-      }
-    );
+    // Create order (your backend)
+    const orderRes = await fetch(`${API_BASE_URL}/api/payment/razorpay/create-order`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        amount: totalPayable,
+        currency: "INR",
+        receipt: `${mode}_${licenseId}_${Date.now()}`,
+      }),
+    });
 
     const orderData = await orderRes.json();
     if (!orderRes.ok || !orderData?.id) {
-      customToast.error("Unable to create Razorpay order.");
+      customToast.error(orderData?.message || "Unable to create Razorpay order.");
+      setWorking(false);
       return;
     }
 
@@ -602,103 +707,182 @@ export default function PaymentDialog({
         razorpay_order_id: string;
         razorpay_signature: string;
       }) => {
+        // Verify
         const verifyToast = customToast.loading("Verifying payment…");
-        const verifyRes = await fetch(
-          `${API_BASE_URL}/api/payment/razorpay/verify`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(resp),
-          }
-        );
+        const verifyRes = await fetch(`${API_BASE_URL}/api/payment/razorpay/verify`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(resp),
+        });
         const verifyJson = await verifyRes.json();
         toast.dismiss(verifyToast);
 
         if (verifyJson?.status !== "success") {
           customToast.error("Payment verification failed.");
+          setWorking(false);
           return;
         }
 
+        // Finalize license
         try {
-          const commonPayload = {
-            licenseId,
-            email,
-            amountPaid: totalPayable,
-            subtotal,
-            gst,
-            coupon: coupon?.trim() || null,
-            payment: {
-              gateway: "razorpay",
-              orderId: resp.razorpay_order_id,
-              paymentId: resp.razorpay_payment_id,
-              signature: resp.razorpay_signature,
-            },
-          };
-
-          if (mode === "renew") {
-            const selectedCycle = cycle ?? "monthly";
-            const durationDays = {
-              monthly: 30,
-              quarterly: 90,
-              half_yearly: 180,
-              yearly: 365,
-            }[selectedCycle];
-
-            const renewPayload = {
-              ...commonPayload,
-              planId: targetPlan.id,
-              cycle: selectedCycle,
-              durationDays,
-              imei: imei ?? null,
-            };
-
-            // ✅ change if your backend route differs
-            await api.post("/user/license/renew", renewPayload);
-            customToast.info("Payment Successful. License Renewed!");
-          } else {
-            const upgradePayload = {
-              ...commonPayload,
-              fromPlanId: currentPlan.id,
-              toPlanId: targetPlan.id,
-            };
-
-            await api.post("/user/license/upgrade", upgradePayload);
-            customToast.info("Payment Successful. License Upgraded!");
-          }
-
-          setTimeout(() => {
-            onOpenChange(false);
-            window.location.reload();
-          }, 1000);
+          await finalizeLicenseAction({
+            gateway: "razorpay",
+            orderId: resp.razorpay_order_id,
+            paymentId: resp.razorpay_payment_id,
+            signature: resp.razorpay_signature,
+          });
         } catch (err: any) {
-          console.error("License action error:", err?.response?.data || err);
+          console.error("License update error:", err?.response?.data || err);
           customToast.error(
-            err?.response?.data?.error ||
+            err?.response?.data?.message ||
               "Payment verified but license update failed. Please contact support."
           );
+          setWorking(false);
         }
       },
     });
 
+    // Close dialog then open gateway
     onOpenChange(false);
     setTimeout(() => {
       setWorking(true);
       rzp.open();
-    }, 100);
+    }, 150);
+  };
+
+  // 3) Cashfree flow 
+
+  const payWithCashfree = async () => {
+    // guard amount
+    if (!Number.isFinite(totalPayable) || totalPayable < 1) {
+      customToast.error("Amount must be at least ₹1.");
+      setWorking(false);
+      return;
+    }
+
+    // 1) Get payment_session_id from your server
+    const res = await fetch(
+      `${API_BASE_URL}/api/payment/cashfree/create-order`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: totalPayable,
+          currency: "INR",
+          customer: {
+            id: `user_${email.replace(/[^a-zA-Z0-9]/g, "_")}`,
+            name: email.split("@")[0] || "User",
+            email,
+            phone: "9999999999", // You might want to get this from user data
+          },
+          returnUrl: `${window.location.origin}/payment/return`,
+          notifyUrl: `${API_BASE_URL}/api/payment/cashfree/webhook`,
+          notes: { licenseId, mode, cycle: cycle ?? null },
+        }),
+        credentials: "include",
+      }
+    );
+
+    const data = await res.json();
+    if (!res.ok) {
+      customToast.error(data?.error || "Failed to create Cashfree order.");
+      setWorking(false);
+      return;
+    }
+
+    const { orderId, payment_session_id } = data || {};
+    if (!orderId || !payment_session_id) {
+      customToast.error("Cashfree response missing payment_session_id.");
+      setWorking(false);
+      return;
+    }
+
+    await loadCashfreeSDK();
+    const cashfree = getCashfree(
+      import.meta.env.PROD ? "production" : "sandbox"
+    );
+
+    try {
+      await cashfree.checkout({
+        paymentSessionId: payment_session_id,
+        redirectTarget: "_modal",
+      });
+    } catch (error) {
+      // User cancelled or payment failed
+      customToast.error("Payment was cancelled or failed.");
+      setWorking(false);
+      return;
+    }
+
+    // 4) Verify with your server
+    const verifyToast = customToast.loading("Verifying payment...");
+    const verifyRes = await fetch(
+      `${API_BASE_URL}/api/payment/cashfree/verify`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId }),
+        credentials: "include",
+      }
+    );
+    const verify = await verifyRes.json();
+    toast.dismiss(verifyToast);
+
+    if (verifyRes.ok && verify?.status === "success") {
+      // 5) Finalize license
+      try {
+        await finalizeLicenseAction({
+          gateway: "cashfree",
+          orderId,
+          paymentId: verify?.paymentId || null,
+          signature: null,
+          meta: verify,
+        });
+      } catch (err: any) {
+        console.error("License update error:", err?.response?.data || err);
+        customToast.error(
+          err?.response?.data?.message ||
+            "Payment verified but license update failed. Please contact support."
+        );
+        setWorking(false);
+      }
+    } else {
+      customToast.error(
+        `Payment not successful. Status: ${verify?.order_status || "UNKNOWN"}`
+      );
+      setWorking(false);
+    }
+  };
+
+
+
+  const startPayment = async () => {
+    setWorking(true);
+
+    // Basic guard
+    if (totalPayable <= 0) {
+      customToast.error("Invalid payable amount.");
+      setWorking(false);
+      return;
+    }
+
+    // If you are using "1" for testing, remove it now in production:
+    // totalPayable should be real value
+
+    if (gateway === "razorpay") return payWithRazorpay();
+    if (gateway === "cashfree") return payWithCashfree();
+    // return payWithPaypal();
   };
 
   const titleText = mode === "renew" ? "Renew Payment" : "Upgrade Payment";
   const subtitle =
     mode === "renew"
-      ? `You’re renewing your ${targetPlan.name} plan. Choose duration and pay.`
-      : `You’re upgrading from ${currentPlan.name} to ${targetPlan.name}. Pay only the difference.`;
+      ? `You’re renewing your ${targetPlan.name} plan.`
+      : `You’re upgrading from ${currentPlan.name} to ${targetPlan.name}.`;
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent
-        data-variant="compact"
-        className="border-none bg-transparent shadow-none"
-      >
+      <AlertDialogContent data-variant="compact" className="border-none bg-transparent shadow-none">
         <div className="mx-auto lg:w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl">
           <div className="bg-white flex flex-col max-h-[90vh]">
             {/* Banner */}
@@ -725,64 +909,45 @@ export default function PaymentDialog({
                 {/* Left */}
                 <div className="grid gap-3">
                   <div className="flex flex-col border border-gray-200 rounded-lg p-3 bg-gradient-to-br from-slate-50 to-white">
-                    <Label className="text-xs font-medium text-gray-500">
-                      Email
-                    </Label>
-                    <span className="text-md font-medium text-gray-600 mt-0.5">
-                      {email}
-                    </span>
+                    <Label className="text-xs font-medium text-gray-500">Email</Label>
+                    <span className="text-md font-medium text-gray-600 mt-0.5">{email}</span>
                   </div>
 
                   <div className="flex flex-col border border-gray-200 rounded-lg p-3 bg-gradient-to-br from-slate-50 to-white">
-                    <Label className="text-xs font-medium text-gray-500">
-                      License ID
-                    </Label>
-                    <span className="text-md font-mono font-semibold text-gray-600 mt-0.5">
-                      {licenseId}
-                    </span>
+                    <Label className="text-xs font-medium text-gray-500">License ID</Label>
+                    <span className="text-md font-mono font-semibold text-gray-600 mt-0.5">{licenseId}</span>
                   </div>
 
                   {!!imei && (
                     <div className="flex flex-col border border-gray-200 rounded-lg p-3 bg-gradient-to-br from-slate-50 to-white">
-                      <Label className="text-xs font-medium text-gray-500">
-                        Device IMEI
-                      </Label>
-                      <span className="text-md font-mono text-gray-800 mt-0.5">
-                        {imei}
-                      </span>
+                      <Label className="text-xs font-medium text-gray-500">Device IMEI</Label>
+                      <span className="text-md font-mono text-gray-800 mt-0.5">{imei}</span>
                     </div>
                   )}
 
                   {!!expiryText && (
                     <div className="flex flex-col border border-gray-200 rounded-lg p-3 bg-gradient-to-br from-slate-50 to-white">
                       <Label className="text-xs font-medium text-gray-500">
-                        Current Expiry
+                        {mode === "renew" ? "Current Expiry" : "Plan Expiry"}
                       </Label>
-                      <span className="text-md font-medium text-gray-600 mt-0.5">
-                        {expiryText}
-                      </span>
+                      <span className="text-md font-medium text-gray-600 mt-0.5">{expiryText}</span>
                     </div>
                   )}
 
                   <div className="grid grid-cols-2 gap-3">
                     <div className="flex flex-col border border-emerald-100 rounded-lg p-3 bg-gradient-to-br from-slate-50 to-white">
-                      <Label className="text-xs font-medium text-emerald-600">
-                        Current Plan
-                      </Label>
-                      <span className="text-md font-semibold text-emerald-800 mt-0.5">
-                        {currentPlan.name}
-                      </span>
+                      <Label className="text-xs font-medium text-emerald-600">Current Plan</Label>
+                      <span className="text-md font-semibold text-emerald-800 mt-0.5">{currentPlan.name}</span>
                     </div>
                     <div className="flex flex-col border border-cyan-100 rounded-lg p-3 bg-gradient-to-br from-slate-50 to-white">
                       <Label className="text-xs font-medium text-cyan-600">
                         {mode === "renew" ? "Renew Plan" : "Target Plan"}
                       </Label>
-                      <span className="text-md font-semibold text-cyan-800 mt-0.5">
-                        {targetPlan.name}
-                      </span>
+                      <span className="text-md font-semibold text-cyan-800 mt-0.5">{targetPlan.name}</span>
                     </div>
                   </div>
 
+                  {/* Coupon */}
                   <div className="flex flex-col border border-gray-200 rounded-lg p-3 bg-gradient-to-br from-slate-50 to-white">
                     <Label htmlFor="coupon" className="text-xs font-medium text-gray-500 mb-1.5">
                       Coupon (optional)
@@ -808,6 +973,29 @@ export default function PaymentDialog({
                     </div>
                   </div>
 
+                  {/* ✅ Gateway dropdown (after coupon) */}
+                  <div className="flex flex-col border border-gray-200 rounded-lg p-3 bg-gradient-to-br from-slate-50 to-white">
+                    <Label htmlFor="gateway" className="text-xs font-medium text-gray-500 mb-1.5">
+                      Payment Gateway
+                    </Label>
+
+                    <select
+                      id="gateway"
+                      value={gateway}
+                      onChange={(e) => setGateway(e.target.value as Gateway)}
+                      className="h-10 rounded-md border border-gray-300 bg-white px-3 text-sm text-gray-700"
+                    >
+                      <option value="razorpay">Razorpay</option>
+                      <option value="cashfree">Cashfree</option>
+                      {/* <option value="paypal">PayPal</option> */}
+                    </select>
+
+                    <p className="mt-2 text-xs text-gray-600">
+                      Selected: <span className="font-semibold">{gateway}</span>
+                    </p>
+                  </div>
+
+                  {/* Pay */}
                   <div className="pt-2">
                     <div className="grid grid-cols-10 gap-2">
                       <Button
@@ -822,17 +1010,7 @@ export default function PaymentDialog({
                       <Button
                         className="cursor-pointer col-span-7 h-11 rounded text-white font-semibold bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:via-teal-600 hover:to-cyan-500"
                         disabled={working}
-                        onClick={() => {
-                          setWorking(true);
-                          let counter = 2;
-                          const timer = setInterval(() => {
-                            counter--;
-                            if (counter <= 0) {
-                              clearInterval(timer);
-                              payWithRazorpay();
-                            }
-                          }, 500);
-                        }}
+                        onClick={startPayment}
                       >
                         {working ? "Processing…" : `Pay ${money(totalPayable)}`}
                       </Button>
@@ -860,13 +1038,14 @@ export default function PaymentDialog({
                         </>
                       )}
 
+                      <div className="text-muted-foreground">Gateway</div>
+                      <div className="text-right text-gray-800">{gateway}</div>
+
                       <div className="text-muted-foreground">Base</div>
-                      <div className="text-right text-gray-800">
-                        {money(baseAmount)}
-                      </div>
+                      <div className="text-right text-gray-800">{money(baseAmount)}</div>
 
                       <div className="text-muted-foreground">Coupon</div>
-                      <div className="text-right">—</div>
+                      <div className="text-right">{discount > 0 ? `- ${money(discount)}` : "—"}</div>
 
                       <div className="text-muted-foreground">GST (18%)</div>
                       <div className="text-right text-gray-800">{money(gst)}</div>
@@ -875,9 +1054,7 @@ export default function PaymentDialog({
                     <div className="absolute inset-x-0 bottom-0 z-10 lg:px-6 px-10 pb-2 lg:pb-5">
                       <div className="pt-2 text-lg text-gray-600 flex items-center justify-between">
                         <span className="font-mono">Total Amount</span>
-                        <span className="font-mono text-2xl">
-                          {money(totalPayable)}
-                        </span>
+                        <span className="font-mono text-2xl">{money(totalPayable)}</span>
                       </div>
                     </div>
                   </div>

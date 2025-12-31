@@ -884,6 +884,7 @@ export default function PlanForm() {
       credentials: "include",
     });
 
+    // console.log(res);
     const data = await res.json();
     if (!res.ok) {
       customToast.error(data?.error || "Failed to create Cashfree order.");
