@@ -86,8 +86,8 @@ function App({ isSidebarOpen }: DashboardProps) {
         <Routes>
           {/* Public/Auth routes */}
           <Route path="/pricing" element={<PricingPage />} />
-          <Route path="/register" element={<Register />} />
-          <Route path="/login" element={<Login />} />
+          <Route path="/admin/register" element={<Register />} />
+          <Route path="/admin/login" element={<Login />} />
           <Route path="/user/login" element={<LoginPage />} />
           <Route path="/user/register" element={<RegisterPage />} />
 

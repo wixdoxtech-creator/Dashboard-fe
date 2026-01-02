@@ -73,14 +73,18 @@ export const ProfileCard = () => {
     };
 
     const fetchLicenseDetails = async () => {
+      // console.log("test");
       try {
         const res = await fetch(`${API_BASE_URL}/user/license/email/${userEmail}`);
+        
         const data = await res.json();
+        // console.log(data);
         setLicenseDetails(data);
       } catch (err) {
         console.error("Failed to fetch license details:", err);
       }
     };
+    
 
     const fetchAll = async () => {
       await Promise.all([fetchUserDetails(), fetchLicenseDetails()]);
@@ -89,6 +93,7 @@ export const ProfileCard = () => {
 
     fetchAll();
   }, [userEmail]);
+
 
   if (loading || !userDetails) return <div>Loading...</div>;
 

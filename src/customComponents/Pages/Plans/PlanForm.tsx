@@ -712,6 +712,7 @@ export default function PlanForm() {
     signature?: string | null;
   }) => {
     const licenseId = getLicenseId();
+    // const licenseId = 3;
     if (!licenseId) {
       customToast.error("LicenseId not found. Please re-login or contact support.");
       return;
@@ -870,14 +871,20 @@ export default function PlanForm() {
       body: JSON.stringify({
         amount: finalPrice,
         currency: "INR",
-        customer: {
-          id: userDetails?.id ? `user_${userDetails.id}` : `cust_${Date.now()}`,
-          name:
-            `${userDetails?.name ?? ""} ${userDetails?.surname ?? ""}`.trim() ||
-            "Guest",
-          email: userDetails?.email || "noemail@example.com",
-          phone: `${userDetails?.phone || "9999999999"}`,
+        // customer: {
+        //   id: userDetails?.id ? `user_${userDetails.id}` : `cust_${Date.now()}`,
+        //   name:
+        //     `${userDetails?.name ?? ""} ${userDetails?.surname ?? ""}`.trim() ||
+        //     "Guest",
+        //   email: userDetails?.email || "noemail@example.com",
+        //   phone: `${userDetails?.phone || "9999999999"}`,
+        // },
+        prefill: {
+          name: `${userDetails?.name ?? ""} ${userDetails?.surname ?? ""}`.trim(),
+          email: userDetails?.email,
+          contact: userDetails?.phone ? `+91${userDetails.phone}` : undefined,
         },
+  
         returnUrl: `${window.location.origin}/payment/return`,
         notifyUrl: `${API_BASE_URL}/api/payment/cashfree/webhook`,
       }),
@@ -903,7 +910,7 @@ export default function PlanForm() {
       return;
     }
 
-    const cashfree = getCashfree(import.meta.env.PROD ? "production" : "sandbox");
+    const cashfree = getCashfree(import.meta.env.VITE_CASHFREE_APP_ID ? "production" : "sandbox");
 
     await cashfree.checkout({
       paymentSessionId: payment_session_id,
@@ -945,52 +952,13 @@ export default function PlanForm() {
     }
   };
 
-  // ---------- PAYPAL ----------
-  // Redirect flow: renew should happen after paypal return + server-side verify/capture.
-  const payWithPaypal = async () => {
-    const res = await fetch(`${API_BASE_URL}/api/payment/paypal/create-order`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        amount: finalPrice,
-        currency: "USD",
-        description: `${selectedPlan.name} - ${selectedDuration} Months`,
-        metadata: {
-          planId: selectedPlan.id,
-          durationDays,
-          userId: userDetails?.id,
-          email: userDetails?.email,
-        },
-      }),
-    });
 
-    const data = await res.json();
-    if (data?.approvalUrl) {
-      window.location.href = data.approvalUrl;
-    } else {
-      customToast.error("PayPal response missing approvalUrl.");
-    }
-  };
-
-  const handleConfirmClick = (e: React.FormEvent) => {
+    const handleConfirmClick = (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!userDetails) {
       customToast.error("User details not loaded.");
       return;
     }
-
-    const licenseId = getLicenseId();
-    if (!licenseId) {
-      customToast.error("No license found for this account to renew.");
-      return;
-    }
-
-    if (!Number.isFinite(finalPrice) || finalPrice < 1) {
-      customToast.error("Amount must be at least ₹1.");
-      return;
-    }
-
     setGatewayOpen(true);
   };
 
@@ -999,7 +967,7 @@ export default function PlanForm() {
       setProcessing(true);
       if (selectedGateway === "razorpay") await payWithRazorpay();
       if (selectedGateway === "cashfree") await payWithCashfree();
-      if (selectedGateway === "paypal") await payWithPaypal();
+   
       setGatewayOpen(false);
     } catch (err) {
       console.error(err);

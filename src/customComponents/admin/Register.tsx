@@ -21,7 +21,7 @@ export default function Register() {
       if (response.success) {
         // If registration was successful, redirect to login
         alert("Admin registered successfully!");
-        navigate("/login");
+        navigate("/admin/login");
       } else {
         // If the error contains "already exists" or similar, provide a more helpful message
         if (response.message?.toLowerCase().includes("exist")) {
@@ -90,7 +90,7 @@ export default function Register() {
 
         <p className="mt-4 text-center text-sm text-gray-600">
           Already have an account?{" "}
-          <a href="/login" className="font-medium text-blue-600 hover:text-blue-500">
+          <a href="/admin/login" className="font-medium text-blue-600 hover:text-blue-500">
             Login here
           </a>
         </p>

@@ -566,6 +566,23 @@ export default function PaymentDialog({
   const [coupon, setCoupon] = useState("");
   const [gateway, setGateway] = useState<Gateway>("razorpay");
   const [working, setWorking] = useState(false);
+  const [userDetails, setUserDetails] = useState<any>(null);
+
+  // Fetch user details when dialog opens
+  useEffect(() => {
+    if (open && email) {
+      const fetchUserDetails = async () => {
+        try {
+          const { data } = await api.get(`/user/get-by-email/${encodeURIComponent(email)}`);
+          setUserDetails(data);
+        } catch (err) {
+          console.error("Failed to fetch user details:", err);
+          setUserDetails(null);
+        }
+      };
+      fetchUserDetails();
+    }
+  }, [open, email]);
 
   useEffect(() => {
     if (open) {
@@ -578,7 +595,7 @@ export default function PaymentDialog({
   // ✅ Replace with server coupon validation if needed
   const discount = useMemo(() => {
     // const c = coupon.trim().toUpperCase();
-    // if (c === "FLAT500") return 5000;
+    // if (c === "FLAT500") return 8999;
     return 0;
   }, [coupon]);
 
@@ -650,6 +667,8 @@ export default function PaymentDialog({
     }, 900);
   };
 
+
+
   // 2) Razorpay flow (Working)
 
   const payWithRazorpay = async () => {
@@ -691,7 +710,13 @@ export default function PaymentDialog({
           : `Upgrade to ${targetPlan.name} (License ${licenseId})`,
       image: brandLogo,
       order_id: orderData.id,
-      prefill: { email },
+      prefill: {
+        name: userDetails?.name && userDetails?.surname 
+          ? `${userDetails.name} ${userDetails.surname}`.trim()
+          : userDetails?.name || email.split("@")[0] || "User",
+        email: email,
+        contact: userDetails?.phone ? `+91${userDetails.phone}` : undefined,
+      },
       notes: {
         licenseId,
         action: mode,
@@ -750,6 +775,7 @@ export default function PaymentDialog({
     }, 150);
   };
 
+  //  console.log(rzp);
   // 3) Cashfree flow 
 
   const payWithCashfree = async () => {
@@ -769,11 +795,12 @@ export default function PaymentDialog({
         body: JSON.stringify({
           amount: totalPayable,
           currency: "INR",
-          customer: {
-            id: `user_${email.replace(/[^a-zA-Z0-9]/g, "_")}`,
-            name: email.split("@")[0] || "User",
-            email,
-            phone: "9999999999", // You might want to get this from user data
+          prefill: {
+            name: userDetails?.name && userDetails?.surname 
+              ? `${userDetails.name} ${userDetails.surname}`.trim()
+              : userDetails?.name || email.split("@")[0] || "User",
+            email: email,
+            contact: userDetails?.phone ? `+91${userDetails.phone}` : undefined,
           },
           returnUrl: `${window.location.origin}/payment/return`,
           notifyUrl: `${API_BASE_URL}/api/payment/cashfree/webhook`,
