@@ -21,7 +21,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
-const LoginForm: React.FC = () => {
+interface LoginFormProps {
+  mode: "login" | "forgot";
+  onModeChange: (mode: "login" | "forgot") => void;
+}
+
+const LoginForm = ({ mode, onModeChange }: LoginFormProps) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -65,12 +70,12 @@ const LoginForm: React.FC = () => {
       setResetOtp("");
       setNewResetPassword("");
       setResetResendIn(60);
-    } catch (err: any) {
-      const msg = err?.response?.data?.message || "Could not send OTP.";
-      customToast.error(msg);
-    } finally {
-      setSendingForgot(false);
-    }
+      } catch (err: any) {
+        const msg = err?.response?.data?.message || "Could not send OTP.";
+        customToast.error(msg);
+      } finally {
+        setSendingForgot(false);
+      }
   };
 
   const handleResendResetOtp = async () => {
@@ -228,10 +233,16 @@ const LoginForm: React.FC = () => {
 
   return (
     <>
-      <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5">
+      <form
+        onSubmit={mode === "login" ? handleSubmit : (e) => e.preventDefault()}
+        className="space-y-4 sm:space-y-5"
+      >
         {/* Email */}
         <div className="space-y-2">
-          <Label className="m-0 sm:m-2 text-sm sm:text-md text-gray-500" htmlFor="email">
+          <Label
+            className="m-0 sm:m-2 text-sm sm:text-md text-gray-500"
+            htmlFor="email"
+          >
             Email
           </Label>
           <div
@@ -252,7 +263,7 @@ const LoginForm: React.FC = () => {
               placeholder="name@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              disabled={isLoading}
+              disabled={isLoading || sendingForgot}
               className={`
         flex-1 bg-transparent border-0 shadow-none
         focus-visible:ring-0 focus-visible:outline-none
@@ -260,22 +271,25 @@ const LoginForm: React.FC = () => {
         ${errors.email ? "text-rose-600" : "text-slate-800"}
       `}
             />
-           </div>
+          </div>
 
           {errors.email && (
             <p className="text-destructive text-xs mt-1 px-1">{errors.email}</p>
           )}
         </div>
 
-        {/* Password */}
+        {/* Password - only in login mode */}
+        {mode === "login" && (
+          <div className="space-y-2">
+            <Label
+              className="m-0 sm:m-2 text-sm sm:text-md text-gray-500"
+              htmlFor="password"
+            >
+              Password
+            </Label>
 
-        <div className="space-y-2">
-          <Label className="m-0 sm:m-2 text-sm sm:text-md text-gray-500" htmlFor="password">
-            Password
-          </Label>
-
-          <div
-            className={`
+            <div
+              className={`
       group relative flex items-center h-11 sm:h-12 rounded px-3 sm:px-4
       bg-slate-50/50 backdrop-blur
       shadow-inner ring-1 ring-slate-200
@@ -284,85 +298,117 @@ const LoginForm: React.FC = () => {
       focus-within:shadow-[0_8px_24px_-10px_rgba(2,132,199,0.35)]
       ${errors.password ? "ring-rose-300 focus-within:ring-rose-400" : ""}
     `}
-          >
-            <Lock className="h-4 w-4 sm:h-5 sm:w-5 text-slate-400" />
+            >
+              <Lock className="h-4 w-4 sm:h-5 sm:w-5 text-slate-400" />
 
-            <Input
-              id="password"
-              type={showPassword ? "text" : "password"}
-              placeholder="Enter your password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              disabled={isLoading}
-              className={`
+              <Input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                placeholder="Enter your password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={isLoading}
+                className={`
         flex-1 bg-transparent border-0 shadow-none
         focus-visible:ring-0 focus-visible:outline-none
         placeholder:text-slate-400/80 text-sm sm:text-[15px]
         ${errors.password ? "text-rose-600" : "text-slate-800"}
       `}
-            />
+              />
 
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="ml-2 text-slate-400 hover:text-sky-600 transition"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? (
+                  <EyeIcon className="h-4 w-4 sm:h-5 sm:w-5" />
+                ) : (
+                  <EyeOffIcon className="h-4 w-4 sm:h-5 sm:w-5" />
+                )}
+              </button>
+            </div>
+
+            {errors.password && (
+              <p className="text-destructive text-xs mt-1 px-1">
+                {errors.password}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Remember Me / Forgot Password Toggle */}
+        {mode === "login" && (
+          <div className="flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-3 sm:gap-0">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="remember"
+                className="h-4 w-4 rounded border-gray-300 text-legal focus:ring-legal"
+              />
+              <Label
+                htmlFor="remember"
+                className="text-xs sm:text-sm text-muted-foreground cursor-pointer"
+              >
+                Remember me
+              </Label>
+            </div>
             <button
               type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="ml-2 text-slate-400 hover:text-sky-600 transition"
-              aria-label={showPassword ? "Hide password" : "Show password"}
+              onClick={() => onModeChange("forgot")}
+              className="text-xs sm:text-sm text-slate-500 hover:underline cursor-pointer"
             >
-              {showPassword ? (
-                <EyeIcon className="h-4 w-4 sm:h-5 sm:w-5" />
-              ) : (
-                <EyeOffIcon className="h-4 w-4 sm:h-5 sm:w-5" />
-              )}
+              Forgot password?
             </button>
-
-              </div>
-
-          {errors.password && (
-            <p className="text-destructive text-xs mt-1 px-1">{errors.password}</p>
-          )}
-        </div>
-
-        {/* Remember Me */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-3 sm:gap-0">
-          <div className="flex items-center space-x-2">
-            <Checkbox
-              id="remember"
-              className="h-4 w-4 rounded border-gray-300 text-legal focus:ring-legal"
-            />
-            <Label
-              htmlFor="remember"
-              className="text-xs sm:text-sm text-muted-foreground cursor-pointer"
-            >
-              Remember me
-            </Label>
           </div>
-          <button
-            type="button"
-            onClick={handleForgotClick}
-            disabled={sendingForgot}
-            className="text-xs sm:text-sm text-slate-500 hover:underline cursor-pointer disabled:opacity-50"
-          >
-            {sendingForgot ? "Sending..." : "Forgot password?"}
-          </button>
-        </div>
+        )}
 
-        {/* Submit Button */}
-        <button
-          type="submit"
-          className={`bg-blue-500 hover:bg-blue-600 text-white w-full py-2.5 sm:py-2 rounded-md font-semibold text-sm sm:text-base transition-colors ${
-            isLoading ? "opacity-70 cursor-not-allowed" : ""
-          }`}
-          disabled={isLoading}
-        >
-          {isLoading ? (
-            <>
-              <span className="mr-2">Signing in</span>
-              <span className="animate-pulse">...</span>
-            </>
-          ) : (
-            "Sign In"
-          )}
-        </button>
+        {/* Forgot password actions in forgot mode */}
+        {mode === "forgot" && (
+          <div className="space-y-2">
+            <p className="text-xs sm:text-sm text-slate-500 mt-1">
+              We&apos;ll send a 6-digit code to this email to reset your
+              password.
+            </p>
+            <button
+              type="button"
+              onClick={handleForgotClick}
+              disabled={sendingForgot || !email}
+              className={`bg-blue-500 hover:bg-blue-600 text-white w-full py-2.5 sm:py-2 rounded-md font-semibold text-sm sm:text-base transition-colors ${
+                sendingForgot ? "opacity-70 cursor-not-allowed" : ""
+              }`}
+            >
+              {sendingForgot ? "Sending..." : "Send reset code"}
+            </button>
+            <button
+              type="button"
+              onClick={() => onModeChange("login")}
+              className="w-full text-xs sm:text-sm text-slate-500 hover:underline mt-1"
+            >
+              Back to login
+            </button>
+          </div>
+        )}
+
+        {/* Submit Button - login mode only */}
+        {mode === "login" && (
+          <button
+            type="submit"
+            className={`bg-blue-500 hover:bg-blue-600 text-white w-full py-2.5 sm:py-2 rounded-md font-semibold text-sm sm:text-base transition-colors ${
+              isLoading ? "opacity-70 cursor-not-allowed" : ""
+            }`}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <>
+                <span className="mr-2">Signing in</span>
+                <span className="animate-pulse">...</span>
+              </>
+            ) : (
+              "Sign In"
+            )}
+          </button>
+        )}
       </form>
 
       {/* OTP Modal */}

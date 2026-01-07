@@ -54,7 +54,7 @@ const RegisterForm: React.FC = () => {
   const [showOtpModal, setShowOtpModal] = useState(false);
   const [otp, setOtp] = useState("");
   const [verifyingOtp, setVerifyingOtp] = useState(false);
-  const [registeredEmail, setRegisteredEmail] = useState("");
+  const [registeredEmail, _setRegisteredEmail] = useState("");
   const [resendCountdown, setResendCountdown] = useState(120);
   const [resendingOtp, setResendingOtp] = useState(false);
 
@@ -151,14 +151,10 @@ const RegisterForm: React.FC = () => {
         data: payload,
       });
 
-      //  Only show OTP modal after successful registration
+      // Navigate directly to login page after successful registration
       if (response.status === 200 || response.status === 201) {
-        setRegisteredEmail(formData.email);
-        setShowOtpModal(true);
-        setResendCountdown(120);
-        customToast.success(
-          "Registration successful. Please check your email for OTP."
-        );
+        customToast.success("Registration successful! Please login to continue.");
+        navigate("/user/login");
       }
     } catch (error: any) {
       customToast.error(error.response?.data?.message || "Registration failed");

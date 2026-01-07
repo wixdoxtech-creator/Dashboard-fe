@@ -28,7 +28,7 @@ const CouponSection = ({
       SAVE10: { discount: 10, type: "percentage" as const },
       SAVE20: { discount: 20, type: "percentage" as const },
       FLAT5: { discount: 5, type: "fixed" as const },
-      FLAT500: { discount: 8998, type: "fixed" as const },
+      FLAT500: { discount: 5998, type: "fixed" as const },
     };
 
     const coupon = validCoupons[couponCode.toUpperCase() as keyof typeof validCoupons];

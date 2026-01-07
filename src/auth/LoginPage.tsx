@@ -1,9 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import LoginForm from "./components/LoginForm";
 
 const LoginPage = () => {
+  const [mode, setMode] = useState<"login" | "forgot">("login");
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
 
@@ -53,14 +54,16 @@ const LoginPage = () => {
             <div className="flex min-h-full flex-col items-center justify-center px-6 py-8 sm:py-10 lg:py-12 md:px-8 lg:px-12 pt-20 sm:pt-24 lg:pt-12">
               <div className="w-full max-w-sm">
                 <h1 className="text-2xl sm:text-3xl lg:text-3xl font-bold text-slate-600">
-                  Login to Account
+                  {mode === "login" ? "Login to Account" : "Forgot Password"}
                 </h1>
                 <p className="text-xs sm:text-sm text-slate-500 mt-2">
-                  Enter your credentials to continue
+                  {mode === "login"
+                    ? "Enter your credentials to continue"
+                    : "Enter your email to reset your password"}
                 </p>
 
                 <div className="mt-6 sm:mt-8">
-                  <LoginForm />
+                  <LoginForm mode={mode} onModeChange={setMode} />
                 </div>
 
                 <div className="mt-4 sm:mt-6 flex flex-col sm:flex-row items-center sm:items-center sm:justify-between gap-3 sm:gap-0 text-xs sm:text-sm">

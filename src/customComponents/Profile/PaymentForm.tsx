@@ -778,15 +778,118 @@ export default function PaymentDialog({
   //  console.log(rzp);
   // 3) Cashfree flow 
 
-  const payWithCashfree = async () => {
-    // guard amount
-    if (!Number.isFinite(totalPayable) || totalPayable < 1) {
-      customToast.error("Amount must be at least ₹1.");
-      setWorking(false);
-      return;
-    }
+  // const payWithCashfree = async () => {
+  //   // guard amount
+  //   if (!Number.isFinite(totalPayable) || totalPayable < 1) {
+  //     customToast.error("Amount must be at least ₹1.");
+  //     setWorking(false);
+  //     return;
+  //   }
 
-    // 1) Get payment_session_id from your server
+  //   console.log("hjScaufha",userDetails);
+
+  //   // 1) Get payment_session_id from your server
+  //   const res = await fetch(
+  //     `${API_BASE_URL}/api/payment/cashfree/create-order`,
+  //     {
+  //       method: "POST",
+  //       headers: { "Content-Type": "application/json" },
+  //       body: JSON.stringify({
+  //         amount: totalPayable,
+  //         currency: "INR",
+  //         prefill: {
+  //           id:userDetails?.id,
+  //           name: userDetails?.name && userDetails?.surname 
+  //             ? `${userDetails.name} ${userDetails.surname}`.trim()
+  //             : userDetails?.name || email.split("@")[0] || "User",
+  //           email: email,
+  //           contact: userDetails?.phone ? `+91${userDetails.phone}` : undefined,
+  //         },
+  //         returnUrl: `${window.location.origin}/payment/return`,
+  //         notifyUrl: `${API_BASE_URL}/api/payment/cashfree/webhook`,
+  //         notes: { licenseId, mode, cycle: cycle ?? null },
+  //       }),
+  //       credentials: "include",
+  //     }
+  //   );
+
+  //   const data = await res.json();
+  //   if (!res.ok) {
+  //     customToast.error(data?.error || "Failed to create Cashfree order.");
+  //     setWorking(false);
+  //     return;
+  //   }
+
+  //   const { orderId, payment_session_id } = data || {};
+  //   if (!orderId || !payment_session_id) {
+  //     customToast.error("Cashfree response missing payment_session_id.");
+  //     setWorking(false);
+  //     return;
+  //   }
+
+  //   await loadCashfreeSDK();
+  //   const cashfree = getCashfree(
+  //     import.meta.env.VITE_CASHFREE_MODE ? "production" : "sandbox"
+  //   );
+
+  //   try {
+  //     await cashfree.checkout({
+  //       paymentSessionId: payment_session_id,
+  //       redirectTarget: "_modal",
+  //     });
+  //   } catch (error) {
+  //     // User cancelled or payment failed
+  //     customToast.error("Payment was cancelled or failed.");
+  //     setWorking(false);
+  //     return;
+  //   }
+
+  //   // 4) Verify with your server
+  //   const verifyToast = customToast.loading("Verifying payment...");
+  //   const verifyRes = await fetch(
+  //     `${API_BASE_URL}/api/payment/cashfree/verify`,
+  //     {
+  //       method: "POST",
+  //       headers: { "Content-Type": "application/json" },
+  //       body: JSON.stringify({ orderId }),
+  //       credentials: "include",
+  //     }
+  //   );
+  //   const verify = await verifyRes.json();
+  //   toast.dismiss(verifyToast);
+
+  //   if (verifyRes.ok && verify?.status === "success") {
+  //     // 5) Finalize license
+  //     try {
+  //       await finalizeLicenseAction({
+  //         gateway: "cashfree",
+  //         orderId,
+  //         paymentId: verify?.paymentId || null,
+  //         signature: null,
+  //         meta: verify,
+  //       });
+  //     } catch (err: any) {
+  //       console.error("License update error:", err?.response?.data || err);
+  //       customToast.error(
+  //         err?.response?.data?.message ||
+  //           "Payment verified but license update failed. Please contact support."
+  //       );
+  //       setWorking(false);
+  //     }
+  //   } else {
+  //     customToast.error(
+  //       `Payment not successful. Status: ${verify?.order_status || "UNKNOWN"}`
+  //     );
+  //     setWorking(false);
+  //   }
+  // };
+
+  const payWithCashfree = async () => {
+    // ... existing code ...
+  
+    const isLocalhost = window.location.hostname === 'localhost' || 
+                       window.location.hostname === '127.0.0.1';
+  
     const res = await fetch(
       `${API_BASE_URL}/api/payment/cashfree/create-order`,
       {
@@ -796,92 +899,26 @@ export default function PaymentDialog({
           amount: totalPayable,
           currency: "INR",
           prefill: {
+            id: userDetails?.id,
             name: userDetails?.name && userDetails?.surname 
               ? `${userDetails.name} ${userDetails.surname}`.trim()
               : userDetails?.name || email.split("@")[0] || "User",
             email: email,
             contact: userDetails?.phone ? `+91${userDetails.phone}` : undefined,
           },
-          returnUrl: `${window.location.origin}/payment/return`,
+          // ✅ Only send returnUrl if not on localhost
+          ...(!isLocalhost && { 
+            returnUrl: `${window.location.origin}/payment/return` 
+          }),
           notifyUrl: `${API_BASE_URL}/api/payment/cashfree/webhook`,
           notes: { licenseId, mode, cycle: cycle ?? null },
         }),
         credentials: "include",
       }
     );
-
-    const data = await res.json();
-    if (!res.ok) {
-      customToast.error(data?.error || "Failed to create Cashfree order.");
-      setWorking(false);
-      return;
-    }
-
-    const { orderId, payment_session_id } = data || {};
-    if (!orderId || !payment_session_id) {
-      customToast.error("Cashfree response missing payment_session_id.");
-      setWorking(false);
-      return;
-    }
-
-    await loadCashfreeSDK();
-    const cashfree = getCashfree(
-      import.meta.env.PROD ? "production" : "sandbox"
-    );
-
-    try {
-      await cashfree.checkout({
-        paymentSessionId: payment_session_id,
-        redirectTarget: "_modal",
-      });
-    } catch (error) {
-      // User cancelled or payment failed
-      customToast.error("Payment was cancelled or failed.");
-      setWorking(false);
-      return;
-    }
-
-    // 4) Verify with your server
-    const verifyToast = customToast.loading("Verifying payment...");
-    const verifyRes = await fetch(
-      `${API_BASE_URL}/api/payment/cashfree/verify`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId }),
-        credentials: "include",
-      }
-    );
-    const verify = await verifyRes.json();
-    toast.dismiss(verifyToast);
-
-    if (verifyRes.ok && verify?.status === "success") {
-      // 5) Finalize license
-      try {
-        await finalizeLicenseAction({
-          gateway: "cashfree",
-          orderId,
-          paymentId: verify?.paymentId || null,
-          signature: null,
-          meta: verify,
-        });
-      } catch (err: any) {
-        console.error("License update error:", err?.response?.data || err);
-        customToast.error(
-          err?.response?.data?.message ||
-            "Payment verified but license update failed. Please contact support."
-        );
-        setWorking(false);
-      }
-    } else {
-      customToast.error(
-        `Payment not successful. Status: ${verify?.order_status || "UNKNOWN"}`
-      );
-      setWorking(false);
-    }
+    
+    // ... rest of your code ...
   };
-
-
 
   const startPayment = async () => {
     setWorking(true);
