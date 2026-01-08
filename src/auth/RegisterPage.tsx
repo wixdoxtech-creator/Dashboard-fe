@@ -33,7 +33,7 @@ const RegisterPage = () => {
               <div className="text-md text-center text-muted-foreground">
                 <p>
                   Already have an account?{' '}
-                  <Link to="/user/login" className="text-legal hover:underline">Login</Link>
+                  <Link to="/user/login" className="text-legal text-blue-500 hover:underline">Login</Link>
                 </p>
               </div>
             </CardFooter>

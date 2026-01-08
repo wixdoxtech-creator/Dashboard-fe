@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { EyeIcon, EyeOffIcon, Mail, Lock } from "lucide-react";
 import { customToast } from "../../lib/toastConfig";
 import { useAuth } from "@/contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
 import {
   Dialog,
   DialogContent,
@@ -27,6 +28,7 @@ interface LoginFormProps {
 }
 
 const LoginForm = ({ mode, onModeChange }: LoginFormProps) => {
+  const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -34,17 +36,9 @@ const LoginForm = ({ mode, onModeChange }: LoginFormProps) => {
   const [errors, setErrors] = useState({ email: "", password: "" });
 
   const [showOtpModal, setShowOtpModal] = useState(false);
-  const [showResetOtpModal, setShowResetOtpModal] = useState(false);
   const [otp, setOtp] = useState("");
   const [verifyingOtp, setVerifyingOtp] = useState(false);
-
-  // Forgot-password (reset) flow state
-  const [resetStep, setResetStep] = useState<"otp" | "newpass" | "done">("otp");
-  const [resetOtp, setResetOtp] = useState("");
-  const [newResetPassword, setNewResetPassword] = useState("");
   const [sendingForgot, setSendingForgot] = useState(false);
-  const [verifyingReset, setVerifyingReset] = useState(false);
-  const [resetResendIn, setResetResendIn] = useState(0);
 
   const handleForgotClick = async () => {
     // basic email validation
@@ -64,12 +58,8 @@ const LoginForm = ({ mode, onModeChange }: LoginFormProps) => {
       );
 
       customToast.success("If an account exists, a code was sent.");
-      // open modal, reset step/state, start resend cooldown
-      setShowResetOtpModal(true);
-      setResetStep("otp");
-      setResetOtp("");
-      setNewResetPassword("");
-      setResetResendIn(60);
+      // Navigate to reset password page with email in URL
+      navigate(`/user/reset-password?email=${encodeURIComponent(email.trim().toLowerCase())}`);
       } catch (err: any) {
         const msg = err?.response?.data?.message || "Could not send OTP.";
         customToast.error(msg);
@@ -78,75 +68,6 @@ const LoginForm = ({ mode, onModeChange }: LoginFormProps) => {
       }
   };
 
-  const handleResendResetOtp = async () => {
-    if (resetResendIn > 0) return;
-    try {
-      await axios.post(
-        `${API_BASE_URL}/user/auth/forgot/otp`,
-        {
-          email: email.trim().toLowerCase(),
-        },
-        { headers: { "Content-Type": "application/json" } }
-      );
-      customToast.success("New code sent.");
-      setResetResendIn(60);
-    } catch (err: any) {
-      customToast.error(
-        err?.response?.data?.message || "Could not resend code."
-      );
-    }
-  };
-
-  // const strongPwd = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
-
-  const handleSaveNewPassword = async () => {
-    // if (!strongPwd.test(newResetPassword)) {
-    //   customToast.error("Password too weak. Use 8+ chars with Aa1#.");
-    //   return;
-    // }
-
-    setVerifyingReset(true);
-    try {
-      const { data } = await axios.post(
-        `${API_BASE_URL}/user/auth/verify/reset/password`,
-        {
-          email: email.trim().toLowerCase(),
-          inputOtp: resetOtp, // IMPORTANT: your backend expects `inputOtp`
-          newPassword: newResetPassword,
-        },
-        { headers: { "Content-Type": "application/json" } }
-      );
-
-      customToast.success(data?.message || "Password updated. Please log in.");
-      setResetStep("done");
-    } catch (err: any) {
-      const msg = err?.response?.data?.message || "Could not update password.";
-      customToast.error(msg);
-      if (/invalid|expired/i.test(msg)) {
-        // bounce back to OTP entry if code is wrong/expired
-        setResetStep("otp");
-      }
-    } finally {
-      setVerifyingReset(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!showResetOtpModal || resetResendIn <= 0) return;
-    const id = setInterval(
-      () => setResetResendIn((s) => (s > 0 ? s - 1 : 0)),
-      1000
-    );
-    return () => clearInterval(id);
-  }, [showResetOtpModal, resetResendIn]);
-
-  const handleResetOtpContinue = () => {
-    if (!/^\d{6}$/.test(resetOtp)) {
-      customToast.error("Enter the 6-digit code.");
-      return;
-    }
-    setResetStep("newpass");
-  };
 
   const validate = () => {
     const newErrors = { email: "", password: "" };
@@ -449,106 +370,6 @@ const LoginForm = ({ mode, onModeChange }: LoginFormProps) => {
         </DialogContent>
       </Dialog>
 
-      {/* Forgot OTP Modal */}
-      <Dialog
-        open={showResetOtpModal}
-        onOpenChange={(v) => {
-          setShowResetOtpModal(v);
-          if (!v) {
-            // reset state when closing
-            setResetStep("otp");
-            setResetOtp("");
-            setNewResetPassword("");
-            setResetResendIn(0);
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {resetStep === "otp" && "Verify Forgot Password OTP"}
-              {resetStep === "newpass" && "Set New Password"}
-              {resetStep === "done" && "All set!"}
-            </DialogTitle>
-            <DialogDescription>
-              {resetStep === "otp" && (
-                <>
-                  Enter the 6-digit code sent to <b>{email || "your email"}</b>.
-                </>
-              )}
-              {resetStep === "newpass" &&
-                "Choose a strong password you haven't used before."}
-              {resetStep === "done" &&
-                "Your password was updated. Log in with your new password."}
-            </DialogDescription>
-          </DialogHeader>
-
-          {resetStep === "otp" && (
-            <div className="flex flex-col items-center gap-4 py-4">
-              <InputOTP maxLength={6} value={resetOtp} onChange={setResetOtp}>
-                <InputOTPGroup>
-                  {[...Array(6)].map((_, i) => (
-                    <InputOTPSlot key={i} index={i} />
-                  ))}
-                </InputOTPGroup>
-              </InputOTP>
-
-              <button
-                onClick={handleResetOtpContinue}
-                className="w-full bg-blue-600 text-white rounded-md px-4 py-2 font-medium hover:bg-blue-700 disabled:opacity-50"
-                disabled={resetOtp.length !== 6}
-              >
-                Continue
-              </button>
-
-              <div className="flex items-center justify-between w-full text-xs text-muted-foreground">
-                <span>Didn’t receive it?</span>
-                <button
-                  type="button"
-                  onClick={handleResendResetOtp}
-                  disabled={resetResendIn > 0 || sendingForgot}
-                  className="text-blue-600 disabled:text-gray-400"
-                >
-                  Resend {resetResendIn > 0 ? `in ${resetResendIn}s` : ""}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {resetStep === "newpass" && (
-            <div className="space-y-3 py-2">
-              <Label htmlFor="newpass">New Password</Label>
-              <Input
-                id="newpass"
-                type="password"
-                value={newResetPassword}
-                onChange={(e) => setNewResetPassword(e.target.value)}
-                placeholder="Min 8 chars, use Aa1#"
-              />
-              <button
-                onClick={handleSaveNewPassword}
-                disabled={verifyingReset}
-                className="w-full bg-blue-600 text-white rounded-md px-4 py-2 font-medium hover:bg-blue-700 disabled:opacity-50"
-              >
-                {verifyingReset ? "Saving..." : "Save New Password"}
-              </button>
-            </div>
-          )}
-
-          {resetStep === "done" && (
-            <div className="space-y-3 py-2">
-              <p className="text-green-600">Password updated successfully.</p>
-              <button
-                type="button"
-                onClick={() => setShowResetOtpModal(false)}
-                className="w-full border rounded-md px-4 py-2"
-              >
-                Close
-              </button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </>
   );
 };

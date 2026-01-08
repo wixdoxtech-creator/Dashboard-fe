@@ -392,7 +392,7 @@ const RegisterForm: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* COUNTRY */}
           <div className="relative">
-            <Label className="absolute left-0 top-2 text-xs text-slate-500">
+            <Label className="absolute left-1 top-1 text-[11px] text-xs tracking-widest text-slate-500">
               COUNTRY
             </Label>
             <Select
@@ -402,7 +402,7 @@ const RegisterForm: React.FC = () => {
               }
               disabled={isLoading}
             >
-              <SelectTrigger className="mt-6 h-12 rounded  border-slate-200 bg-slate-50/80 backdrop-blur-sm">
+              <SelectTrigger className="mt-6 h-12 w-full rounded  border-slate-200 bg-slate-50/80 backdrop-blur-sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="max-h-[300px]">
@@ -417,7 +417,7 @@ const RegisterForm: React.FC = () => {
 
           {/* STATE */}
           <div className="relative">
-            <Label className="absolute left-0 top-2 text-xs text-slate-500">
+            <Label className="absolute left-1 top-1 text-[11px] tracking-widest text-xs text-slate-500">
               STATE
             </Label>
             <Select
@@ -427,7 +427,7 @@ const RegisterForm: React.FC = () => {
               }
               disabled={allStates.length === 0}
             >
-              <SelectTrigger className="mt-6 h-12 rounded  border-slate-200 bg-slate-50/80 backdrop-blur-sm">
+              <SelectTrigger className="mt-6 h-12 w-full rounded  border-slate-200 bg-slate-50/80 backdrop-blur-sm">
                 <SelectValue
                   placeholder={
                     allStates.length === 0

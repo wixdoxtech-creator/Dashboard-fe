@@ -52,6 +52,7 @@ import WhatsappBusiness from "./customComponents/Social Media/Whatsapp-Business/
 // Auth
 import LoginPage from "./auth/LoginPage";
 import RegisterPage from "./auth/RegisterPage";
+import ResetPassword from "./auth/ResetPassword";
 import ProtectedRoute from "./contexts/ProtectedRoute";
 import WhatsappStatus from "./customComponents/Social Media/WhatsApp/WhatsappStatus";
 import DocumentPage from "./customComponents/Documents/Components/DocumentPage";
@@ -90,6 +91,7 @@ function App({ isSidebarOpen }: DashboardProps) {
           <Route path="/admin/login" element={<Login />} />
           <Route path="/user/login" element={<LoginPage />} />
           <Route path="/user/register" element={<RegisterPage />} />
+          <Route path="/user/reset-password" element={<ResetPassword/>}/>
 
           {/* App shell (protected) */}
           <Route
