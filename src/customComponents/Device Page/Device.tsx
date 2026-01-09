@@ -116,7 +116,7 @@ function DeviceInfo() {
     setDeleting(true);
     setDeleteMsg(null);
     try {
-      const res = await fetch("https://enc.ionmonitor.com/file/reset-all", {
+      const res = await fetch("https://dm.owss.in/file/reset-all", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

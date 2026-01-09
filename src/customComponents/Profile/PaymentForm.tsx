@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { customToast, toast } from "@/lib/toastConfig";
 import { api } from "@/api/api";
+import { GetPaymentGateway } from "@/api/adminApi";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
@@ -109,7 +110,9 @@ export default function PaymentDialog({
   const [gateway, setGateway] = useState<Gateway>("razorpay");
   const [working, setWorking] = useState(false);
   const [userDetails, setUserDetails] = useState<any>(null);
+  const [gateways, setGateways] = useState<Gateway[]>([]);
 
+  
   // Fetch user details when dialog opens
   useEffect(() => {
     if (open && email) {
@@ -126,11 +129,40 @@ export default function PaymentDialog({
     }
   }, [open, email]);
 
+  // Fetch active payment gateway from API when dialog opens
+      useEffect(() => {
+        if (!open) return;
+      
+        const fetchGateways = async () => {
+          try {
+            const res = await GetPaymentGateway();
+            const rows = res?.data || [];
+      
+            // extract names
+            const list = rows
+              .filter((g: any) => g?.is_active)
+              .map((g: any) => g.name.toLowerCase() as Gateway);
+      
+            setGateways(list);
+      
+            // auto-select first active gateway
+            if (list.length) {
+              setGateway(list[0]);
+            }
+          } catch (err) {
+            console.error("Failed to fetch payment gateways:", err);
+          }
+        };
+      
+        fetchGateways();
+      }, [open]);
+  
+  
   useEffect(() => {
     if (open) {
       setWorking(false);
       setCoupon("");
-      setGateway("razorpay");
+      // Gateway will be set by the active gateway fetch effect
     }
   }, [open]);
 
@@ -559,15 +591,22 @@ await cashfree.checkout({
                     </Label>
 
                     <select
-                      id="gateway"
-                      value={gateway}
-                      onChange={(e) => setGateway(e.target.value as Gateway)}
-                      className="h-10 rounded-md border border-gray-300 bg-white px-3 text-sm text-gray-700"
-                    >
-                      <option value="razorpay">Razorpay</option>
-                      <option value="cashfree">Cashfree</option>
-                      {/* <option value="paypal">PayPal</option> */}
-                    </select>
+                        id="gateway"
+                        value={gateway}
+                        onChange={(e) => setGateway(e.target.value as Gateway)}
+                        className="h-10 rounded-md border border-gray-300 bg-white px-3 text-sm text-gray-700"
+                      >
+                        {gateways.length === 0 && (
+                          <option value="">Loading gateways...</option>
+                        )}
+
+                        {gateways.map((g) => (
+                          <option key={g} value={g}>
+                            {g.charAt(0).toUpperCase() + g.slice(1)}
+                          </option>
+                        ))}
+                      </select>
+
 
                     <p className="mt-2 text-xs text-gray-600">
                       Selected: <span className="font-semibold">{gateway}</span>

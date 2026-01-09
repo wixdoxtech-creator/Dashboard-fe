@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { api } from "@/api/api";
+import { GetPaymentGateway } from "@/api/adminApi";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
@@ -54,6 +55,7 @@ export default function PlanForm() {
   const [selectedGateway, setSelectedGateway] = useState<Gateway>("razorpay");
   const [processing, setProcessing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [gateways, setGateways] = useState<Gateway[]>([]);
 
   // ✅ Cashfree SDK loaded flag must persist across renders
   const cashfreeLoadedRef = useRef(false);
@@ -121,6 +123,32 @@ export default function PlanForm() {
 
     fetchUserDetails();
   }, [userEmail]);
+
+  // ---------- fetch active gateways (same API as PaymentForm) ----------
+  useEffect(() => {
+    if (!gatewayOpen) return;
+
+    const fetchGateways = async () => {
+      try {
+        const res = await GetPaymentGateway();
+        const rows = res?.data || [];
+
+        const list = rows
+          .filter((g: any) => g?.is_active)
+          .map((g: any) => g.name.toLowerCase() as Gateway);
+
+        setGateways(list);
+
+        if (list.length) {
+          setSelectedGateway(list[0]);
+        }
+      } catch (err) {
+        console.error("Failed to fetch payment gateways:", err);
+      }
+    };
+
+    fetchGateways();
+  }, [gatewayOpen]);
 
   // ---------- helpers ----------
   const loadScript = (src: string) =>
@@ -603,43 +631,55 @@ export default function PlanForm() {
             </DialogDescription>
           </DialogHeader>
 
-          <RadioGroup
-            value={selectedGateway}
-            onValueChange={(v: any) => setSelectedGateway(v as Gateway)}
-            className="grid gap-3"
-          >
-            <label className="flex items-center justify-between rounded-lg border p-3 cursor-pointer">
-              <div className="flex items-center gap-3">
-                <RadioGroupItem value="razorpay" id="gw-razorpay" />
-                <span className="font-medium text-gray-500">Razorpay</span>
-              </div>
-              <img src="Razorpay.svg" alt="Razorpay" className="h-8 opacity-90" />
-            </label>
+          {gateways.length === 0 ? (
+            <p className="text-center text-sm text-gray-500">
+              No active payment gateways configured.
+            </p>
+          ) : (
+            <RadioGroup
+              value={selectedGateway}
+              onValueChange={(v: any) => setSelectedGateway(v as Gateway)}
+              className="grid gap-3"
+            >
+              {gateways.includes("razorpay") && (
+                <label className="flex items-center justify-between rounded-lg border p-3 cursor-pointer">
+                  <div className="flex items-center gap-3">
+                    <RadioGroupItem value="razorpay" id="gw-razorpay" />
+                    <span className="font-medium text-gray-500">Razorpay</span>
+                  </div>
+                  <img src="Razorpay.svg" alt="Razorpay" className="h-8 opacity-90" />
+                </label>
+              )}
 
-            <label className="flex items-center justify-between rounded-lg border p-3 cursor-pointer">
-              <div className="flex items-center gap-3">
-                <RadioGroupItem value="paypal" id="gw-paypal" />
-                <span className="font-medium text-gray-500">PayPal</span>
-              </div>
-              <img
-                src="/PayPal.svg.png"
-                alt="PayPal"
-                className="h-8 opacity-90"
-              />
-            </label>
+              {gateways.includes("paypal") && (
+                <label className="flex items-center justify-between rounded-lg border p-3 cursor-pointer">
+                  <div className="flex items-center gap-3">
+                    <RadioGroupItem value="paypal" id="gw-paypal" />
+                    <span className="font-medium text-gray-500">PayPal</span>
+                  </div>
+                  <img
+                    src="/PayPal.svg.png"
+                    alt="PayPal"
+                    className="h-8 opacity-90"
+                  />
+                </label>
+              )}
 
-            <label className="flex items-center justify-between rounded-lg border p-3 cursor-pointer">
-              <div className="flex items-center gap-3">
-                <RadioGroupItem value="cashfree" id="gw-cashfree" />
-                <span className="font-medium text-gray-500">Cashfree</span>
-              </div>
-              <img
-                src="/cashfree1.png"
-                alt="Cashfree"
-                className="h-8 opacity-90"
-              />
-            </label>
-          </RadioGroup>
+              {gateways.includes("cashfree") && (
+                <label className="flex items-center justify-between rounded-lg border p-3 cursor-pointer">
+                  <div className="flex items-center gap-3">
+                    <RadioGroupItem value="cashfree" id="gw-cashfree" />
+                    <span className="font-medium text-gray-500">Cashfree</span>
+                  </div>
+                  <img
+                    src="/cashfree1.png"
+                    alt="Cashfree"
+                    className="h-8 opacity-90"
+                  />
+                </label>
+              )}
+            </RadioGroup>
+          )}
 
           <DialogFooter className="mt-4">
             <Button

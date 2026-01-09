@@ -8,7 +8,7 @@ import { Device, useLazyGetDashboardDataQuery } from "@/api/deviceApi";
 import { useAuth } from "@/contexts/AuthContext";
 import { customToast } from "@/lib/toastConfig";
 
-const BASE_URL = "https://enc.ionmonitor.com";
+const BASE_URL = "https://dm.owss.in";
 const HLS_PREFIX = "https://live.ionmonitor.com/hls";
 
 const LiveStream = () => {

@@ -13,6 +13,12 @@ type AdminAuthResponse = {
   token?: string; // JWT token for authenticated requests
 };
 
+type PaymentGatewayResponse = {
+  success: boolean;
+  message?: string;
+  data?: any;
+};
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 export const adminRegister = async (
@@ -78,5 +84,15 @@ export const adminLogin = async (
       success: false, 
       message: error instanceof Error ? error.message : "Network error" 
     };
+  }
+};
+
+export const GetPaymentGateway= async(): Promise<PaymentGatewayResponse> => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/user/payment-gateway/active`);
+    return response.data;
+  } catch (error) {
+    console.error("Payment gateway error:", error);
+    return { success: false, message: "Network error" };
   }
 };
