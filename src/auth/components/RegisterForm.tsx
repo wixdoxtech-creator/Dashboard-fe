@@ -46,6 +46,11 @@ const RegisterForm: React.FC = () => {
     terms: false,
   });
 
+//  if(!formData.name || !formData.surname || !formData.email || !formData.phone || !formData.country || !formData.state || !formData.pin_code || !formData.address || !formData.password || !formData.confirmPassword || !formData.terms){
+//   customToast.error("Please fill all the fields");
+//   return;
+//  }
+
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -86,6 +91,7 @@ const RegisterForm: React.FC = () => {
     for (const key in formData) {
       if (!formData[key as keyof typeof formData]) {
         newErrors[key] = `${key.replace("_", " ")} is required`;
+        customToast.error(`${key.replace("_", " ")} is required`);
         isValid = false;
       }
     }
